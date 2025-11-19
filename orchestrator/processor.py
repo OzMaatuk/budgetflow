@@ -8,9 +8,10 @@ import time
 from config import Config
 from drive import DrivePoller, Customer, PDFFile
 from pdf import PDFProcessor, HebrewNormalizer
-from budgetflow.llm import LLMCategorizer, Aggregator
-from budgetflow.sheets import SheetsGenerator
-from budgetflow.utils import (
+from llm.categorizer import LLMCategorizer
+from llm.aggregator import Aggregator
+from sheets.generator import SheetsGenerator
+from utils.logger import (
     get_logger,
     set_customer_context,
     PDFError,

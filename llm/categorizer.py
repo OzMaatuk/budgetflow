@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .models import Transaction
 from .vendor_cache import VendorCache
-from budgetflow.utils import get_logger, LLMError, RetryableLLMError, ValidationError as BudgetValidationError
+from utils.logger import get_logger
+from utils.exceptions import LLMError, RetryableLLMError, ValidationError as BudgetValidationError
 
 logger = get_logger()
 

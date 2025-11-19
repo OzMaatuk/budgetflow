@@ -5,10 +5,10 @@ import signal
 import argparse
 from pathlib import Path
 
-from budgetflow.config import ConfigManager
-from budgetflow.orchestrator import ProcessingOrchestrator
-from budgetflow.utils import get_logger
-from budgetflow.utils.hash_registry import HashRegistry
+from config.manager import ConfigManager
+from orchestrator.processor import ProcessingOrchestrator
+from utils.logger import get_logger
+from utils.hash_registry import HashRegistry
 
 logger = get_logger()
 

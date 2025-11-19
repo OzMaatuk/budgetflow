@@ -3,7 +3,7 @@ import re
 import unicodedata
 from typing import List
 
-from budgetflow.utils import get_logger
+from utils.logger import get_logger
 
 logger = get_logger()
 

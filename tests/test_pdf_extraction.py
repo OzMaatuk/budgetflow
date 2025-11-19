@@ -2,11 +2,11 @@
 import sys
 from pathlib import Path
 
-# Add project to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from budgetflow.pdf import PDFProcessor
-from budgetflow.utils import get_logger
+from pdf.processor import PDFProcessor
+from utils.logger import get_logger
 
 def test_pdf(pdf_path: str):
     """Test PDF extraction on a specific file."""
