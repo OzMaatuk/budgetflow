@@ -1,0 +1,15 @@
+google-api-python-client>=2.108.0
+google-auth>=2.25.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+gspread>=5.12.0
+langchain>=0.1.0
+langchain-google-genai>=0.0.5
+pdfplumber>=0.10.0
+pypdf>=3.17.0
+pydantic>=2.5.0
+python-Levenshtein>=0.23.0
+pywin32>=307
+
+# OCR support (optional - for scanned PDFs)
+aspose-ocr-python-net>=23.12.0
