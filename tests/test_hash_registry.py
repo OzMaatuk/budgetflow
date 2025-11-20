@@ -4,7 +4,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from budgetflow.utils.hash_registry import HashRegistry
+from utils.hash_registry import HashRegistry
 
 
 class TestHashRegistry(unittest.TestCase):

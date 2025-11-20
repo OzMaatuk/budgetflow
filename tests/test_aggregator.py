@@ -3,8 +3,8 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 
-from budgetflow.llm.models import Transaction
-from budgetflow.llm.aggregator import Aggregator
+from llm.models import Transaction
+from llm.aggregator import Aggregator
 
 
 class TestAggregator(unittest.TestCase):

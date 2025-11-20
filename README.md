@@ -8,8 +8,9 @@ BudgetFlow is an automated finance-processing system that runs locally on Window
 
 - **Multi-Customer Support**: Process statements for multiple customers with isolated data
 - **Automatic Processing**: Polls Google Drive and processes new PDFs automatically
-- **Hebrew Support**: Handles Hebrew bank statements with text normalization
-- **AI Categorization**: Uses Gemini Flash to categorize transactions intelligently
+- **Hebrew Support**: Native Hebrew support via Gemini Vision API
+- **Vision AI Processing**: Uses Gemini Vision to process PDFs directly (text-based and scanned)
+- **AI Categorization**: Intelligent transaction categorization with learning
 - **Vendor Learning**: Caches vendor-to-category mappings for faster processing
 - **Additive Updates**: Updates budget totals without overwriting existing data
 - **Complete Audit Trail**: Logs all transactions in Raw Data tab
@@ -150,7 +151,7 @@ Unregister-ScheduledTask -TaskName "BudgetFlow" -Confirm:$false
 
 **Service won't start**: Check logs at `%LOCALAPPDATA%\BudgetFlow\logs\service.log`
 
-**PDFs not processing**: Ensure PDFs are text-based (not scanned images)
+**PDFs not processing**: Check API key validity and quota limits
 
 **Wrong categories**: Edit vendor cache at `%LOCALAPPDATA%\BudgetFlow\vendors\{customer}.json`
 

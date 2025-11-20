@@ -157,8 +157,8 @@ Start-ScheduledTask -TaskName "BudgetFlow"
 
 **Possible Causes:**
 
-1. **Scanned PDF**: BudgetFlow only works with text-based PDFs
-   - Solution: Use OCR software first, or request digital statement
+1. **Unsupported Format**: BudgetFlow works with both text-based and scanned PDFs
+   - Solution: Ensure file is a valid PDF format
 
 2. **File in Subfolder**: PDFs must be in customer folder root
    - Solution: Move file to customer folder (not Archive/Error)

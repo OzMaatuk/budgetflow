@@ -1,5 +1,4 @@
 """PDF processing module."""
-from .processor import PDFProcessor
-from .hebrew_normalizer import HebrewNormalizer
+from .vision_processor import VisionPDFProcessor
 
-__all__ = ["PDFProcessor", "HebrewNormalizer"]
+__all__ = ["VisionPDFProcessor"]

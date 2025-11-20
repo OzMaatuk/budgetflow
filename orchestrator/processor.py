@@ -7,8 +7,7 @@ import time
 
 from config import Config
 from drive import DrivePoller, Customer, PDFFile
-from pdf import PDFProcessor, HebrewNormalizer
-from llm.categorizer import LLMCategorizer
+from llm.vision_categorizer import VisionCategorizer
 from llm.aggregator import Aggregator
 from sheets.generator import SheetsGenerator
 from utils.logger import (
@@ -52,13 +51,10 @@ class ProcessingOrchestrator:
             config.root_folder_id
         )
         
-        # Enable OCR by default (will auto-disable if dependencies not available)
-        self.pdf_processor = PDFProcessor(enable_ocr=True)
-        self.hebrew_normalizer = HebrewNormalizer()
-        
         categories_path = Path(__file__).parent.parent / "resources" / "categories.json"
         
-        self.llm_categorizer = LLMCategorizer(
+        # Use Vision-based categorizer (processes PDFs directly)
+        self.vision_categorizer = VisionCategorizer(
             config.gemini_api_key,
             categories_path
         )
@@ -73,7 +69,7 @@ class ProcessingOrchestrator:
         
         self.hash_registry = HashRegistry()
         
-        logger.info("Processing Orchestrator initialized")
+        logger.info("Processing Orchestrator initialized with Vision API")
     
     def run_polling_cycle(self) -> List[ProcessingResult]:
         """
@@ -218,15 +214,9 @@ class ProcessingOrchestrator:
                 self.drive_poller.move_to_duplicates(pdf_file, customer)
                 return []
             
-            # Extract text
-            text = self.pdf_processor.extract_text(local_path)
-            
-            # Normalize Hebrew
-            normalized_text = self.hebrew_normalizer.normalize(text)
-            
-            # Extract and categorize transactions
-            transactions = self.llm_categorizer.extract_transactions(
-                normalized_text,
+            # Extract and categorize transactions directly from PDF using Vision API
+            transactions = self.vision_categorizer.extract_transactions_from_pdf(
+                local_path,
                 customer.id
             )
             

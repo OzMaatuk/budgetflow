@@ -5,17 +5,15 @@
 BudgetFlow follows a pipeline architecture with the following components:
 
 ```
-Drive Poller → PDF Processor → Hebrew Normalizer → LLM Categorizer → Aggregator → Sheets Generator
+Drive Poller → Vision Categorizer (PDF → Transactions) → Aggregator → Sheets Generator
 ```
 
 ### Component Responsibilities
 
 1. **Drive Poller**: Monitors Google Drive, downloads PDFs
-2. **PDF Processor**: Extracts text from PDFs
-3. **Hebrew Normalizer**: Fixes RTL text issues
-4. **LLM Categorizer**: Extracts and categorizes transactions
-5. **Aggregator**: Groups transactions by category
-6. **Sheets Generator**: Updates Google Sheets reports
+2. **Vision Categorizer**: Processes PDFs directly using Gemini Vision API, extracts and categorizes transactions
+3. **Aggregator**: Groups transactions by category
+4. **Sheets Generator**: Updates Google Sheets reports
 
 ## Development Setup
 
@@ -67,11 +65,10 @@ budgetflow/
 ├── drive/               # Google Drive integration
 │   ├── models.py        # Data models
 │   └── poller.py        # Drive monitoring
-├── pdf/                 # PDF processing
-│   ├── processor.py     # Text extraction
-│   └── hebrew_normalizer.py  # Hebrew text fixes
+├── pdf/                 # PDF processing (legacy)
+│   └── __init__.py      # Package marker
 ├── llm/                 # LLM processing
-│   ├── categorizer.py   # Transaction extraction
+│   ├── vision_categorizer.py  # PDF → Transactions (Vision API)
 │   ├── vendor_cache.py  # Vendor mappings
 │   ├── aggregator.py    # Transaction aggregation
 │   └── models.py        # Data models
@@ -125,15 +122,16 @@ pdf_files = poller.scan_customer_folder(customer)
 local_path = poller.download_pdf(pdf_file, customer_id)
 ```
 
-### LLMCategorizer
+### VisionCategorizer
 
-Extracts and categorizes transactions.
+Extracts and categorizes transactions directly from PDFs using Gemini Vision API.
 
 ```python
-from llm import LLMCategorizer
+from llm import VisionCategorizer
 
-categorizer = LLMCategorizer(api_key, categories_path)
-transactions = categorizer.extract_transactions(text, customer_id)
+categorizer = VisionCategorizer(api_key, categories_path)
+# Process PDF directly - no OCR or text extraction needed
+transactions = categorizer.extract_transactions_from_pdf(pdf_path, customer_id)
 ```
 
 ### SheetsGenerator
@@ -187,14 +185,15 @@ results = orchestrator.run_polling_cycle()
 
 ### Modifying LLM Prompt
 
-Edit `llm/categorizer.py`, method `_build_prompt()`:
+Edit `llm/vision_categorizer.py`, method `_build_vision_prompt()`:
 
 ```python
-def _build_prompt(self, text: str) -> str:
+def _build_vision_prompt(self) -> str:
     return f"""Your custom prompt here
     
     Categories: {self.category_list}
-    Text: {text}
+    
+    Return JSON format...
     """
 ```
 
@@ -486,12 +485,13 @@ class DrivePoller:
     def ensure_customer_structure(customer: Customer) -> None
 ```
 
-### LLMCategorizer
+### VisionCategorizer
 
 ```python
-class LLMCategorizer:
+class VisionCategorizer:
     def __init__(api_key: str, categories_path: Path)
-    def extract_transactions(text: str, customer_id: str) -> List[Transaction]
+    def extract_transactions_from_pdf(pdf_path: Path, customer_id: str) -> List[Transaction]
+    def extract_transactions_from_text(text: str, customer_id: str) -> List[Transaction]
     def infer_month(transactions: List[Transaction]) -> int
 ```
 
@@ -511,7 +511,7 @@ class SheetsGenerator:
 - [Google Drive API](https://developers.google.com/drive/api/v3/about-sdk)
 - [Google Sheets API](https://developers.google.com/sheets/api)
 - [Gemini API](https://ai.google.dev/docs)
-- [LangChain](https://python.langchain.com/docs/get_started/introduction)
+- [Google GenAI SDK](https://googleapis.github.io/python-genai/)
 - [PyInstaller](https://pyinstaller.org/en/stable/)
 
 ## Support

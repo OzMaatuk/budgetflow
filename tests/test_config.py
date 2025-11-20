@@ -4,7 +4,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from budgetflow.config import ConfigManager, Config
+from config import ConfigManager, Config
 
 
 class TestConfigManager(unittest.TestCase):

@@ -4,7 +4,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from budgetflow.llm.vendor_cache import VendorCache
+from llm.vendor_cache import VendorCache
 
 
 class TestVendorCache(unittest.TestCase):

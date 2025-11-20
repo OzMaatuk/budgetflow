@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path so budgetflow can be imported as a package
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 if __name__ == "__main__":
     # Discover and run all tests
