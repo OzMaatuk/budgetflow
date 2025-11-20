@@ -3,8 +3,9 @@ import sys
 import os
 from pathlib import Path
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src directory to path
+src_dir = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_dir))
 
 # Suppress Google API warnings
 os.environ['GRPC_VERBOSITY'] = 'ERROR'

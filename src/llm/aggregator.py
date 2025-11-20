@@ -1,8 +1,7 @@
 """Transaction aggregation module."""
 from decimal import Decimal
-from collections import defaultdict
-from typing import List, Dict
-from collections import Counter
+from collections import defaultdict, Counter
+from typing import List
 
 from .models import Transaction, AggregatedData
 from utils.logger import get_logger
@@ -28,45 +27,23 @@ class Aggregator:
         if not transactions:
             raise ValidationError("Cannot aggregate empty transaction list")
         
-        # Infer month
-        month = self._infer_month(transactions)
+        # Infer month from most common transaction month
+        month_counts = Counter(txn.date.month for txn in transactions)
+        month = month_counts.most_common(1)[0][0]
         
         # Aggregate by category
         totals = defaultdict(Decimal)
         for txn in transactions:
             totals[txn.category] += txn.amount
         
-        aggregated = AggregatedData(
-            customer_id=customer_id,
-            month=month,
-            totals=dict(totals),
-            transactions=transactions
-        )
-        
         logger.info(
             f"Aggregated {len(transactions)} transactions into {len(totals)} categories "
             f"for month {month}"
         )
         
-        return aggregated
-    
-    def _infer_month(self, transactions: List[Transaction]) -> int:
-        """
-        Infer statement month from transaction dates.
-        
-        Args:
-            transactions: List of transactions
-            
-        Returns:
-            Month number (1-12)
-        """
-        if not transactions:
-            raise ValidationError("Cannot infer month from empty transaction list")
-        
-        # Count months
-        month_counts = Counter(txn.date.month for txn in transactions)
-        
-        # Return most common month
-        most_common_month = month_counts.most_common(1)[0][0]
-        logger.debug(f"Inferred month: {most_common_month}")
-        return most_common_month
+        return AggregatedData(
+            customer_id=customer_id,
+            month=month,
+            totals=dict(totals),
+            transactions=transactions
+        )

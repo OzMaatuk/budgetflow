@@ -38,7 +38,7 @@ class ConfigManager:
             with open(self.config_file, "rb") as f:
                 encrypted_data = f.read()
             
-            decrypted_data = win32crypt.CryptUnprotectData(encrypted_data, None, None, None, 0)[1]
+            decrypted_data = self._decrypt_data(encrypted_data)
             config_dict = json.loads(decrypted_data.decode("utf-8"))
             return Config(**config_dict)
         except Exception as e:
@@ -48,14 +48,7 @@ class ConfigManager:
         """Save configuration with encryption."""
         try:
             config_json = json.dumps(asdict(config), indent=2)
-            encrypted_data = win32crypt.CryptProtectData(
-                config_json.encode("utf-8"),
-                "BudgetFlow Configuration",
-                None,
-                None,
-                None,
-                0
-            )
+            encrypted_data = self._encrypt_data(config_json.encode("utf-8"))
             
             with open(self.config_file, "wb") as f:
                 f.write(encrypted_data)
@@ -85,17 +78,10 @@ class ConfigManager:
         
         return True, "Configuration is valid"
     
-    def encrypt_sensitive_data(self, data: str) -> bytes:
-        """Encrypt sensitive data using Windows DPAPI."""
-        return win32crypt.CryptProtectData(
-            data.encode("utf-8"),
-            "BudgetFlow Sensitive Data",
-            None,
-            None,
-            None,
-            0
-        )
+    def _encrypt_data(self, data: bytes, description: str = "BudgetFlow Configuration") -> bytes:
+        """Encrypt data using Windows DPAPI."""
+        return win32crypt.CryptProtectData(data, description, None, None, None, 0)
     
-    def decrypt_sensitive_data(self, encrypted_data: bytes) -> str:
-        """Decrypt sensitive data using Windows DPAPI."""
-        return win32crypt.CryptUnprotectData(encrypted_data, None, None, None, 0)[1].decode("utf-8")
+    def _decrypt_data(self, encrypted_data: bytes) -> bytes:
+        """Decrypt data using Windows DPAPI."""
+        return win32crypt.CryptUnprotectData(encrypted_data, None, None, None, 0)[1]

@@ -149,31 +149,6 @@ class HashRegistry:
             conn.commit()
             return deleted
     
-    def clear_file_cache(self, customer_id: str, file_hash: str) -> bool:
-        """
-        Clear cache for a specific file.
-        
-        Args:
-            customer_id: Customer identifier
-            file_hash: SHA256 hash of the file
-            
-        Returns:
-            True if record was deleted, False if not found
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM processed_files WHERE customer_id = ? AND file_hash = ?",
-                (customer_id, file_hash)
-            )
-            deleted = cursor.rowcount > 0
-            conn.commit()
-            
-            if deleted:
-                logger.info(f"Cleared cache for file hash: {file_hash[:8]}...")
-            
-            return deleted
-    
     @staticmethod
     def calculate_hash(file_path: Path) -> str:
         """Calculate SHA256 hash of a file."""

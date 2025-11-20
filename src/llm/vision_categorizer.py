@@ -5,8 +5,6 @@ from pathlib import Path
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Dict
-from collections import Counter
-
 from google import genai
 from pydantic import BaseModel, Field, ValidationError
 
@@ -106,42 +104,7 @@ class VisionCategorizer:
             logger.error(f"Vision extraction failed for {pdf_path.name}: {e}")
             raise RetryableLLMError(f"Failed to extract transactions: {e}")
     
-    def extract_transactions_from_text(self, text: str, customer_id: str) -> List[Transaction]:
-        """
-        Extract and categorize transactions from pre-extracted text.
-        
-        Args:
-            text: Statement text
-            customer_id: Customer identifier
-            
-        Returns:
-            List of Transaction objects
-        """
-        try:
-            # Build prompt
-            prompt = self._build_text_prompt(text)
-            
-            # Generate content
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            
-            if not response.text:
-                raise LLMError("LLM returned empty response")
-            
-            # Parse JSON response
-            transactions_data = self._parse_response(response.text)
-            
-            # Convert to Transaction objects
-            transactions = self._create_transactions(transactions_data, customer_id)
-            
-            logger.info(f"Extracted {len(transactions)} transactions from text")
-            return transactions
-            
-        except Exception as e:
-            logger.error(f"Text extraction failed: {e}")
-            raise RetryableLLMError(f"Failed to extract transactions: {e}")
+
     
     def _create_transactions(self, transactions_data: List[Dict], customer_id: str) -> List[Transaction]:
         """Convert parsed data to Transaction objects."""
@@ -190,18 +153,7 @@ class VisionCategorizer:
         logger.warning(f"Invalid category '{llm_category}' for '{description}', using 'Other'")
         return "Other"
     
-    def infer_month(self, transactions: List[Transaction]) -> int:
-        """Infer statement month from transaction dates."""
-        if not transactions:
-            raise BudgetValidationError("Cannot infer month from empty transaction list")
-        
-        # Count months
-        month_counts = Counter(txn.date.month for txn in transactions)
-        
-        # Return most common month
-        most_common_month = month_counts.most_common(1)[0][0]
-        logger.debug(f"Inferred month: {most_common_month}")
-        return most_common_month
+
     
     def _build_vision_prompt(self) -> str:
         """Build prompt for direct PDF processing."""
@@ -234,32 +186,7 @@ Return ONLY a valid JSON object in this format:
 
 Do not include any explanations or markdown formatting, just the JSON object."""
     
-    def _build_text_prompt(self, text: str) -> str:
-        """Build prompt for text-based extraction."""
-        return f"""You are a financial transaction parser for Hebrew bank statements.
 
-Extract all transactions from the following statement text and return a JSON object.
-
-Categories (use EXACTLY these names):
-{json.dumps(self.category_list, ensure_ascii=False, indent=2)}
-
-For each transaction, provide:
-- date: DD/MM/YYYY format
-- description: original Hebrew description
-- amount: negative for expenses, positive for income (as a number)
-- category: one of the categories above (match the Hebrew name exactly)
-
-Statement text:
-{text}
-
-Return ONLY a valid JSON object in this format:
-{{
-  "transactions": [
-    {{"date": "DD/MM/YYYY", "description": "...", "amount": -123.45, "category": "..."}}
-  ]
-}}
-
-Do not include any explanations or markdown formatting, just the JSON object."""
     
     def _parse_response(self, response_text: str) -> List[Dict]:
         """Parse LLM JSON response."""
@@ -299,10 +226,8 @@ Do not include any explanations or markdown formatting, just the JSON object."""
     
     def _build_category_list(self) -> List[str]:
         """Build flat list of all category names."""
-        category_list = []
-        
-        for group in ["income", "fixed_expenses", "variable_expenses", "other"]:
-            for category in self.categories.get(group, []):
-                category_list.append(category["name"])
-        
-        return category_list
+        return [
+            category["name"]
+            for group in ["income", "fixed_expenses", "variable_expenses", "other"]
+            for category in self.categories.get(group, [])
+        ]

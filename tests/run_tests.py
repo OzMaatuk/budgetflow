@@ -3,8 +3,9 @@ import unittest
 import sys
 from pathlib import Path
 
-# Add parent directory to path so budgetflow can be imported as a package
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src directory to path
+src_dir = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_dir))
 
 if __name__ == "__main__":
     # Discover and run all tests

@@ -88,3 +88,5 @@ dmypy.json
 .pyre/
 
 *.pdf
+
+combined.txt

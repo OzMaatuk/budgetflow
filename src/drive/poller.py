@@ -87,7 +87,7 @@ class DrivePoller:
             logger.info(f"Discovered {len(customers)} customers")
             return customers
             
-        except HttpError as e:
+        except (HttpError, ConnectionError, TimeoutError) as e:
             logger.error(f"Failed to discover customers: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
@@ -131,7 +131,7 @@ class DrivePoller:
             logger.debug(f"Found {len(pdf_files)} PDF files for customer {customer.id}")
             return pdf_files
             
-        except HttpError as e:
+        except (HttpError, ConnectionError, TimeoutError) as e:
             logger.error(f"Failed to scan customer folder {customer.id}: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
@@ -170,94 +170,49 @@ class DrivePoller:
             logger.error(f"Failed to download {pdf_file.name}: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
-    @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
     def move_to_archive(self, pdf_file: PDFFile, customer: Customer) -> None:
-        """
-        Move PDF file to customer's Archive folder.
-        
-        Args:
-            pdf_file: PDFFile object
-            customer: Customer object
-        """
-        try:
-            if not customer.archive_folder_id:
-                customer.archive_folder_id = self._get_or_create_subfolder(
-                    customer.folder_id,
-                    "Archive"
-                )
-            
-            # Move file
-            self.service.files().update(
-                fileId=pdf_file.id,
-                addParents=customer.archive_folder_id,
-                removeParents=customer.folder_id,
-                fields="id, parents"
-            ).execute()
-            
-            logger.info(f"Moved {pdf_file.name} to Archive for customer {customer.id}")
-            
-        except HttpError as e:
-            logger.error(f"Failed to move {pdf_file.name} to Archive: {e}")
-            raise RetryableNetworkError(f"Drive API error: {e}")
+        """Move PDF file to customer's Archive folder."""
+        self._move_to_subfolder(pdf_file, customer, "Archive", "archive_folder_id")
+        logger.info(f"Moved {pdf_file.name} to Archive for customer {customer.id}")
     
-    @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
     def move_to_error(self, pdf_file: PDFFile, customer: Customer) -> None:
-        """
-        Move PDF file to customer's Error folder.
-        
-        Args:
-            pdf_file: PDFFile object
-            customer: Customer object
-        """
-        try:
-            if not customer.error_folder_id:
-                customer.error_folder_id = self._get_or_create_subfolder(
-                    customer.folder_id,
-                    "Error"
-                )
-            
-            # Move file
-            self.service.files().update(
-                fileId=pdf_file.id,
-                addParents=customer.error_folder_id,
-                removeParents=customer.folder_id,
-                fields="id, parents"
-            ).execute()
-            
-            logger.warning(f"Moved {pdf_file.name} to Error for customer {customer.id}")
-            
-        except HttpError as e:
-            logger.error(f"Failed to move {pdf_file.name} to Error: {e}")
-            raise RetryableNetworkError(f"Drive API error: {e}")
+        """Move PDF file to customer's Error folder."""
+        self._move_to_subfolder(pdf_file, customer, "Error", "error_folder_id")
+        logger.warning(f"Moved {pdf_file.name} to Error for customer {customer.id}")
+    
+    def move_to_duplicates(self, pdf_file: PDFFile, customer: Customer) -> None:
+        """Move PDF file to customer's Duplicates folder."""
+        self._move_to_subfolder(pdf_file, customer, "Duplicates", "duplicates_folder_id")
+        logger.info(f"Moved duplicate {pdf_file.name} for customer {customer.id}")
     
     @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
-    def move_to_duplicates(self, pdf_file: PDFFile, customer: Customer) -> None:
+    def _move_to_subfolder(self, pdf_file: PDFFile, customer: Customer, folder_name: str, attr_name: str) -> None:
         """
-        Move PDF file to customer's Duplicates folder.
+        Move PDF file to a customer subfolder.
         
         Args:
             pdf_file: PDFFile object
             customer: Customer object
+            folder_name: Name of the subfolder (Archive, Error, Duplicates)
+            attr_name: Attribute name on customer object to cache folder ID
         """
         try:
-            if not customer.duplicates_folder_id:
-                customer.duplicates_folder_id = self._get_or_create_subfolder(
-                    customer.folder_id,
-                    "Duplicates"
-                )
+            # Get or create folder ID
+            folder_id = getattr(customer, attr_name)
+            if not folder_id:
+                folder_id = self._get_or_create_subfolder(customer.folder_id, folder_name)
+                setattr(customer, attr_name, folder_id)
             
             # Move file
             self.service.files().update(
                 fileId=pdf_file.id,
-                addParents=customer.duplicates_folder_id,
+                addParents=folder_id,
                 removeParents=customer.folder_id,
                 fields="id, parents"
             ).execute()
             
-            logger.info(f"Moved duplicate {pdf_file.name} for customer {customer.id}")
-            
         except HttpError as e:
-            logger.error(f"Failed to move {pdf_file.name} to Duplicates: {e}")
+            logger.error(f"Failed to move {pdf_file.name} to {folder_name}: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
     def ensure_customer_structure(self, customer: Customer) -> None:

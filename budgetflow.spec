@@ -5,7 +5,7 @@ block_cipher = None
 
 a = Analysis(
     ['main.py'],
-    pathex=['.'],
+    pathex=['src'],
     binaries=[],
     datas=[
         ('resources/categories.json', 'resources'),
@@ -21,8 +21,7 @@ a = Analysis(
         'utils.hash_registry',
         'utils.exceptions',
         'utils.retry',
-        'pdf',
-        'pdf.vision_processor',
+        'utils.auth',
         'drive',
         'drive.poller',
         'drive.models',

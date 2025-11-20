@@ -67,6 +67,24 @@ cd budgetflow
 
 Output: `dist\BudgetFlow.exe`
 
+### Project Structure
+
+```
+budgetflow/
+├── src/                    # Source code
+│   ├── config/            # Configuration management
+│   ├── drive/             # Google Drive integration
+│   ├── llm/               # AI processing
+│   ├── orchestrator/      # Main workflow orchestration
+│   ├── sheets/            # Google Sheets integration
+│   ├── utils/             # Utilities
+│   └── main.py            # Entry point
+├── resources/             # Categories and assets
+├── tests/                 # Unit tests
+├── docs/                  # Documentation
+└── main.py                # Launcher script
+```
+
 ## Google Drive Structure
 
 ```

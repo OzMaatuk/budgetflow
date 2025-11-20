@@ -65,7 +65,7 @@ class SheetsGenerator:
             Spreadsheet ID
         """
         # Search for existing report
-        report_name = f"{customer_id}_Budget"
+        report_name = customer_id
         query = (
             f"'{self.outputs_folder_id}' in parents "
             f"and name='{report_name}' "
@@ -85,6 +85,8 @@ class SheetsGenerator:
             if files:
                 spreadsheet_id = files[0]["id"]
                 logger.debug(f"Found existing report for {customer_id}: {spreadsheet_id}")
+                # Ensure existing sheet has proper structure
+                self._ensure_sheet_structure(spreadsheet_id)
                 return spreadsheet_id
             
             # Create new report
@@ -92,7 +94,7 @@ class SheetsGenerator:
             logger.info(f"Created new report for {customer_id}: {spreadsheet_id}")
             return spreadsheet_id
             
-        except HttpError as e:
+        except (HttpError, ConnectionError, TimeoutError) as e:
             logger.error(f"Failed to get/create report for {customer_id}: {e}")
             raise RetryableNetworkError(f"Sheets API error: {e}")
     
@@ -113,6 +115,9 @@ class SheetsGenerator:
             
             spreadsheet_id = file.get("id")
             
+            # Rename default Sheet1 to Budget and add Raw Data sheet
+            self._setup_sheets(spreadsheet_id)
+            
             # Initialize Budget sheet
             self._initialize_budget_sheet(spreadsheet_id)
             
@@ -124,6 +129,79 @@ class SheetsGenerator:
         except HttpError as e:
             logger.error(f"Failed to create report: {e}")
             raise SheetsError(f"Failed to create report: {e}")
+    
+    def _ensure_sheet_structure(self, spreadsheet_id: str) -> None:
+        """Ensure existing spreadsheet has proper sheet structure."""
+        try:
+            sheets, sheet_names = self._get_sheet_info(spreadsheet_id)
+            requests = []
+            needs_budget_init = False
+            needs_raw_data_init = False
+            
+            # Check if Budget sheet exists
+            if "Budget" not in sheet_names:
+                if sheets and sheets[0]["properties"]["title"] in ["Sheet1", "שיט1"]:
+                    requests.append({
+                        "updateSheetProperties": {
+                            "properties": {
+                                "sheetId": sheets[0]["properties"]["sheetId"],
+                                "title": "Budget"
+                            },
+                            "fields": "title"
+                        }
+                    })
+                else:
+                    requests.append({"addSheet": {"properties": {"title": "Budget"}}})
+                needs_budget_init = True
+            
+            # Check if Raw Data sheet exists
+            if "Raw Data" not in sheet_names:
+                requests.append({"addSheet": {"properties": {"title": "Raw Data"}}})
+                needs_raw_data_init = True
+            
+            # Execute batch update if needed
+            if requests:
+                self.sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": requests}
+                ).execute()
+                logger.debug(f"Updated sheet structure with {len(requests)} changes")
+                
+                if needs_budget_init:
+                    self._initialize_budget_sheet(spreadsheet_id)
+                if needs_raw_data_init:
+                    self._initialize_raw_data_sheet(spreadsheet_id)
+            
+        except HttpError as e:
+            logger.error(f"Failed to ensure sheet structure: {e}")
+            raise SheetsError(f"Failed to ensure sheet structure: {e}")
+    
+    def _setup_sheets(self, spreadsheet_id: str) -> None:
+        """Setup sheet tabs (rename Sheet1 to Budget, add Raw Data)."""
+        try:
+            sheets, _ = self._get_sheet_info(spreadsheet_id)
+            default_sheet_id = sheets[0]["properties"]["sheetId"] if sheets else 0
+            
+            requests = [
+                {
+                    "updateSheetProperties": {
+                        "properties": {"sheetId": default_sheet_id, "title": "Budget"},
+                        "fields": "title"
+                    }
+                },
+                {"addSheet": {"properties": {"title": "Raw Data"}}}
+            ]
+            
+            self.sheets_service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body={"requests": requests}
+            ).execute()
+            
+            logger.debug("Setup sheet tabs: Budget, Raw Data")
+            
+        except HttpError as e:
+            logger.error(f"Failed to setup sheets: {e}")
+            raise SheetsError(f"Failed to setup sheets: {e}")
     
     def _initialize_budget_sheet(self, spreadsheet_id: str) -> None:
         """Initialize Budget sheet with template."""
@@ -276,13 +354,7 @@ class SheetsGenerator:
             True if valid, False otherwise
         """
         try:
-            # Check Budget sheet exists
-            result = self.sheets_service.spreadsheets().get(
-                spreadsheetId=spreadsheet_id
-            ).execute()
-            
-            sheets = result.get("sheets", [])
-            sheet_names = [sheet["properties"]["title"] for sheet in sheets]
+            _, sheet_names = self._get_sheet_info(spreadsheet_id)
             
             if "Budget" not in sheet_names or "Raw Data" not in sheet_names:
                 logger.error("Missing required sheets")
@@ -309,6 +381,15 @@ class SheetsGenerator:
         except HttpError as e:
             logger.error(f"Failed to validate structure: {e}")
             return False
+    
+    def _get_sheet_info(self, spreadsheet_id: str) -> tuple:
+        """Get sheet information (sheets list and names)."""
+        result = self.sheets_service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id
+        ).execute()
+        sheets = result.get("sheets", [])
+        sheet_names = [sheet["properties"]["title"] for sheet in sheets]
+        return sheets, sheet_names
     
     def _find_month_column(self, spreadsheet_id: str, month: int) -> int:
         """Find column index for month."""
