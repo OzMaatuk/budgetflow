@@ -135,6 +135,22 @@ def main():
     
     logger.info("Configuration loaded successfully")
     
+    # Trigger OAuth authorization if needed (before initializing orchestrator)
+    if config.oauth_client_secrets:
+        logger.info("OAuth authentication configured - checking credentials...")
+        try:
+            from utils.auth import get_credentials
+            # This will trigger browser authorization if token doesn't exist or is invalid
+            get_credentials(
+                oauth_client_secrets=config.oauth_client_secrets,
+                oauth_token_path=config.oauth_token_path
+            )
+            logger.info("OAuth credentials validated successfully")
+        except Exception as e:
+            logger.critical(f"OAuth authorization failed: {e}")
+            logger.critical("Please run setup wizard again or check your OAuth configuration")
+            sys.exit(1)
+    
     # Initialize orchestrator
     try:
         orchestrator = ProcessingOrchestrator(config)

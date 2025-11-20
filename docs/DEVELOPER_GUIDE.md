@@ -23,6 +23,8 @@ Drive Poller → Vision Categorizer (PDF → Transactions) → Aggregator → Sh
 - Windows 10/11
 - Git
 - Visual C++ Build Tools (for some dependencies)
+- Google Cloud project with Drive and Sheets APIs enabled
+- Either OAuth 2.0 credentials OR service account (see [User Guide](USER_GUIDE.md#step-2-choose-authentication-method))
 
 ### Clone and Install
 
@@ -91,6 +93,60 @@ budgetflow/
 └── requirements.txt     # Dependencies
 ```
 
+## Authentication
+
+BudgetFlow supports two authentication methods for Google APIs:
+
+### OAuth 2.0 (Recommended for Personal Use)
+
+**Advantages:**
+- Uses your personal Google Drive storage
+- No service account setup needed
+- Works with free Gmail accounts
+- One-time browser authorization
+
+**Setup:**
+1. Create OAuth 2.0 credentials in Google Cloud Console
+2. Download `client_secrets.json`
+3. Place in project root or specify path in config
+4. First run opens browser for authorization
+5. Credentials saved to `token.pickle` for future use
+
+**See:** [User Guide - OAuth Setup](USER_GUIDE.md#step-2-choose-authentication-method) for detailed instructions
+
+### Service Account (For Advanced Users)
+
+**Advantages:**
+- No browser interaction needed
+- Good for server deployments
+- Can be used with Domain-Wide Delegation
+
+**Disadvantages:**
+- Requires Google Cloud project setup
+- Service account has its own storage quota
+- More complex permission management
+
+**Setup:**
+1. Create service account in Google Cloud Console
+2. Download JSON key file
+3. Share Drive folders with service account email
+4. Specify path in config
+
+### Authentication Module
+
+The `utils.auth` module provides unified authentication:
+
+```python
+from utils.auth import get_credentials
+
+# Automatically uses OAuth or Service Account
+credentials = get_credentials(
+    service_account_path="path/to/sa.json",  # Optional
+    oauth_client_secrets="client_secrets.json",  # Optional
+    oauth_token_path="token.pickle"  # Optional
+)
+```
+
 ## Key Classes
 
 ### ConfigManager
@@ -101,11 +157,21 @@ Manages encrypted configuration storage.
 from config import ConfigManager, Config
 
 manager = ConfigManager()
+
+# Option 1: Using OAuth 2.0 (recommended)
 config = Config(
     gemini_api_key="key",
-    service_account_path="path/to/creds.json",
+    oauth_client_secrets="path/to/client_secrets.json",
     root_folder_id="folder_id"
 )
+
+# Option 2: Using Service Account
+config = Config(
+    gemini_api_key="key",
+    service_account_path="path/to/service_account.json",
+    root_folder_id="folder_id"
+)
+
 manager.save_config(config)
 ```
 
@@ -116,7 +182,18 @@ Monitors Google Drive for new files.
 ```python
 from drive import DrivePoller
 
-poller = DrivePoller(service_account_path, root_folder_id)
+# Using OAuth 2.0
+poller = DrivePoller(
+    root_folder_id=root_folder_id,
+    oauth_client_secrets="client_secrets.json"
+)
+
+# Using Service Account
+poller = DrivePoller(
+    root_folder_id=root_folder_id,
+    service_account_path="service_account.json"
+)
+
 customers = poller.discover_customers()
 pdf_files = poller.scan_customer_folder(customer)
 local_path = poller.download_pdf(pdf_file, customer_id)
@@ -141,7 +218,20 @@ Updates Google Sheets reports.
 ```python
 from sheets import SheetsGenerator
 
-generator = SheetsGenerator(service_account_path, root_folder_id, categories_path)
+# Using OAuth 2.0
+generator = SheetsGenerator(
+    root_folder_id=root_folder_id,
+    categories_path=categories_path,
+    oauth_client_secrets="client_secrets.json"
+)
+
+# Using Service Account
+generator = SheetsGenerator(
+    root_folder_id=root_folder_id,
+    categories_path=categories_path,
+    service_account_path="service_account.json"
+)
+
 generator.update_budget(customer_id, aggregated_data)
 generator.append_raw_data(customer_id, transactions)
 ```

@@ -4,7 +4,6 @@ import io
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
@@ -13,6 +12,7 @@ from .models import Customer, PDFFile
 from utils.logger import get_logger
 from utils.exceptions import RetryableNetworkError
 from utils.retry import retry_with_backoff
+from utils.auth import get_credentials
 
 logger = get_logger()
 
@@ -20,22 +20,31 @@ logger = get_logger()
 class DrivePoller:
     """Monitors Google Drive for customer folders and PDF files."""
     
-    def __init__(self, service_account_path: str, root_folder_id: str):
+    def __init__(
+        self,
+        root_folder_id: str,
+        service_account_path: Optional[str] = None,
+        oauth_client_secrets: Optional[str] = None,
+        oauth_token_path: Optional[str] = None
+    ):
         """
         Initialize Drive poller.
         
         Args:
-            service_account_path: Path to service account JSON file
             root_folder_id: ID of root folder containing customer folders
+            service_account_path: Path to service account JSON (optional)
+            oauth_client_secrets: Path to OAuth client secrets (optional)
+            oauth_token_path: Path to OAuth token pickle (optional)
         """
         self.root_folder_id = root_folder_id
         self.temp_dir = Path(os.getenv("LOCALAPPDATA")) / "BudgetFlow" / "tmp"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize Drive API
-        credentials = service_account.Credentials.from_service_account_file(
-            service_account_path,
-            scopes=["https://www.googleapis.com/auth/drive"]
+        # Initialize Drive API with flexible authentication
+        credentials = get_credentials(
+            service_account_path=service_account_path,
+            oauth_client_secrets=oauth_client_secrets,
+            oauth_token_path=oauth_token_path
         )
         self.service = build("drive", "v3", credentials=credentials)
         logger.info("Drive API initialized")

@@ -6,7 +6,6 @@ from decimal import Decimal
 from typing import Optional, List, Dict
 from datetime import datetime
 
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -14,6 +13,7 @@ from llm.models import Transaction, AggregatedData
 from utils.logger import get_logger
 from utils.exceptions import SheetsError, RetryableNetworkError
 from utils.retry import retry_with_backoff
+from utils.auth import get_credentials
 
 logger = get_logger()
 
@@ -21,21 +21,28 @@ logger = get_logger()
 class SheetsGenerator:
     """Generates and updates customer budget reports."""
     
-    def __init__(self, service_account_path: str, root_folder_id: str, categories_path: Path):
+    def __init__(
+        self,
+        root_folder_id: str,
+        categories_path: Path,
+        service_account_path: Optional[str] = None,
+        oauth_client_secrets: Optional[str] = None,
+        oauth_token_path: Optional[str] = None
+    ):
         """
         Initialize Sheets generator.
         
         Args:
-            service_account_path: Path to service account JSON
             root_folder_id: Root folder ID for finding Outputs folder
             categories_path: Path to categories.json
+            service_account_path: Path to service account JSON (optional)
+            oauth_client_secrets: Path to OAuth client secrets (optional)
+            oauth_token_path: Path to OAuth token pickle (optional)
         """
-        credentials = service_account.Credentials.from_service_account_file(
-            service_account_path,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
+        credentials = get_credentials(
+            service_account_path=service_account_path,
+            oauth_client_secrets=oauth_client_secrets,
+            oauth_token_path=oauth_token_path
         )
         
         self.sheets_service = build("sheets", "v4", credentials=credentials)
@@ -92,33 +99,25 @@ class SheetsGenerator:
     def _create_report(self, customer_id: str, report_name: str) -> str:
         """Create new budget report from template."""
         try:
-            # Create spreadsheet
-            spreadsheet = {
-                "properties": {"title": report_name},
-                "sheets": [
-                    {"properties": {"title": "Budget"}},
-                    {"properties": {"title": "Raw Data"}}
-                ]
+            # Create the file in Drive first, directly in the Outputs folder
+            file_metadata = {
+                "name": report_name,
+                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "parents": [self.outputs_folder_id]
             }
             
-            result = self.sheets_service.spreadsheets().create(
-                body=spreadsheet
+            file = self.drive_service.files().create(
+                body=file_metadata,
+                fields="id"
             ).execute()
             
-            spreadsheet_id = result["spreadsheetId"]
+            spreadsheet_id = file.get("id")
             
             # Initialize Budget sheet
             self._initialize_budget_sheet(spreadsheet_id)
             
             # Initialize Raw Data sheet
             self._initialize_raw_data_sheet(spreadsheet_id)
-            
-            # Move to Outputs folder
-            self.drive_service.files().update(
-                fileId=spreadsheet_id,
-                addParents=self.outputs_folder_id,
-                fields="id, parents"
-            ).execute()
             
             return spreadsheet_id
             

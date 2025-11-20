@@ -2,9 +2,9 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from .manager import ConfigManager, Config
+from utils.auth import get_credentials
 
 
 class SetupWizard:
@@ -18,7 +18,9 @@ class SetupWizard:
         
         # Variables
         self.gemini_key_var = tk.StringVar()
+        self.auth_method_var = tk.StringVar(value="oauth")  # "oauth" or "service_account"
         self.service_account_var = tk.StringVar()
+        self.oauth_client_var = tk.StringVar()
         self.root_folder_var = tk.StringVar()
         self.polling_var = tk.IntVar(value=5)
         
@@ -44,26 +46,55 @@ class SetupWizard:
             row=0, column=1, pady=5, padx=5
         )
         
+        # Authentication Method
+        ttk.Label(frame, text="Authentication Method:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        auth_frame = ttk.Frame(frame)
+        auth_frame.grid(row=1, column=1, sticky=tk.W, pady=5, padx=5)
+        ttk.Radiobutton(
+            auth_frame, 
+            text="OAuth 2.0 (Recommended)", 
+            variable=self.auth_method_var, 
+            value="oauth",
+            command=self._toggle_auth_method
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(
+            auth_frame, 
+            text="Service Account", 
+            variable=self.auth_method_var, 
+            value="service_account",
+            command=self._toggle_auth_method
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # OAuth Client Secrets
+        self.oauth_label = ttk.Label(frame, text="OAuth Client Secrets:")
+        self.oauth_label.grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.oauth_entry = ttk.Entry(frame, textvariable=self.oauth_client_var, width=40)
+        self.oauth_entry.grid(row=2, column=1, pady=5, padx=5)
+        self.oauth_button = ttk.Button(frame, text="Browse", command=self._browse_oauth_client)
+        self.oauth_button.grid(row=2, column=2, pady=5)
+        
         # Service Account
-        ttk.Label(frame, text="Service Account File:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(frame, textvariable=self.service_account_var, width=40).grid(
-            row=1, column=1, pady=5, padx=5
-        )
-        ttk.Button(frame, text="Browse", command=self._browse_service_account).grid(
-            row=1, column=2, pady=5
-        )
+        self.sa_label = ttk.Label(frame, text="Service Account File:")
+        self.sa_label.grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.sa_entry = ttk.Entry(frame, textvariable=self.service_account_var, width=40)
+        self.sa_entry.grid(row=3, column=1, pady=5, padx=5)
+        self.sa_button = ttk.Button(frame, text="Browse", command=self._browse_service_account)
+        self.sa_button.grid(row=3, column=2, pady=5)
         
         # Root Folder ID
-        ttk.Label(frame, text="Root Folder ID:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(frame, text="Root Folder ID:").grid(row=4, column=0, sticky=tk.W, pady=5)
         ttk.Entry(frame, textvariable=self.root_folder_var, width=50).grid(
-            row=2, column=1, pady=5, padx=5
+            row=4, column=1, pady=5, padx=5
         )
         
         # Polling Interval
-        ttk.Label(frame, text="Polling Interval (minutes):").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(frame, text="Polling Interval (minutes):").grid(row=5, column=0, sticky=tk.W, pady=5)
         ttk.Spinbox(frame, from_=1, to=60, textvariable=self.polling_var, width=10).grid(
-            row=3, column=1, sticky=tk.W, pady=5, padx=5
+            row=5, column=1, sticky=tk.W, pady=5, padx=5
         )
+        
+        # Initialize visibility
+        self._toggle_auth_method()
         
         # Buttons
         button_frame = ttk.Frame(self.root)
@@ -80,6 +111,34 @@ class SetupWizard:
         self.status_label = ttk.Label(self.root, text="", foreground="blue")
         self.status_label.pack(pady=10)
     
+    def _toggle_auth_method(self):
+        """Toggle visibility of auth method fields."""
+        if self.auth_method_var.get() == "oauth":
+            # Show OAuth, hide Service Account
+            self.oauth_label.grid()
+            self.oauth_entry.grid()
+            self.oauth_button.grid()
+            self.sa_label.grid_remove()
+            self.sa_entry.grid_remove()
+            self.sa_button.grid_remove()
+        else:
+            # Show Service Account, hide OAuth
+            self.oauth_label.grid_remove()
+            self.oauth_entry.grid_remove()
+            self.oauth_button.grid_remove()
+            self.sa_label.grid()
+            self.sa_entry.grid()
+            self.sa_button.grid()
+    
+    def _browse_oauth_client(self):
+        """Open file dialog for OAuth client secrets selection."""
+        filename = filedialog.askopenfilename(
+            title="Select OAuth Client Secrets JSON",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if filename:
+            self.oauth_client_var.set(filename)
+    
     def _browse_service_account(self):
         """Open file dialog for service account selection."""
         filename = filedialog.askopenfilename(
@@ -95,13 +154,21 @@ class SetupWizard:
         self.root.update()
         
         try:
-            # Create config object
-            config = Config(
-                gemini_api_key=self.gemini_key_var.get(),
-                service_account_path=self.service_account_var.get(),
-                root_folder_id=self.root_folder_var.get(),
-                polling_interval_minutes=self.polling_var.get()
-            )
+            # Create config object based on auth method
+            if self.auth_method_var.get() == "oauth":
+                config = Config(
+                    gemini_api_key=self.gemini_key_var.get(),
+                    oauth_client_secrets=self.oauth_client_var.get(),
+                    root_folder_id=self.root_folder_var.get(),
+                    polling_interval_minutes=self.polling_var.get()
+                )
+            else:
+                config = Config(
+                    gemini_api_key=self.gemini_key_var.get(),
+                    service_account_path=self.service_account_var.get(),
+                    root_folder_id=self.root_folder_var.get(),
+                    polling_interval_minutes=self.polling_var.get()
+                )
             
             # Validate basic fields
             is_valid, message = self.config_manager.validate_config(config)
@@ -110,16 +177,23 @@ class SetupWizard:
                 self.status_label.config(text="Validation failed", foreground="red")
                 return
             
-            # Validate Google Drive access
+            # Validate Google Drive access and trigger OAuth if needed
             self.status_label.config(text="Validating Drive access...", foreground="blue")
             self.root.update()
             
-            credentials = service_account.Credentials.from_service_account_file(
-                config.service_account_path,
-                scopes=[
-                    "https://www.googleapis.com/auth/drive",
-                    "https://www.googleapis.com/auth/spreadsheets"
-                ]
+            # Get credentials (this will trigger OAuth browser flow if using OAuth)
+            if self.auth_method_var.get() == "oauth":
+                messagebox.showinfo(
+                    "OAuth Authorization",
+                    "A browser window will open for Google authorization.\n\n"
+                    "Please log in and grant permissions.\n\n"
+                    "Make sure you added yourself as a test user in OAuth consent screen!"
+                )
+            
+            credentials = get_credentials(
+                service_account_path=config.service_account_path,
+                oauth_client_secrets=config.oauth_client_secrets,
+                oauth_token_path=config.oauth_token_path
             )
             
             drive_service = build("drive", "v3", credentials=credentials)

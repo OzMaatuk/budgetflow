@@ -11,11 +11,14 @@ import win32crypt
 class Config:
     """System configuration."""
     gemini_api_key: str
-    service_account_path: str
     root_folder_id: str
     polling_interval_minutes: int = 5
     log_level: str = "INFO"
     max_concurrent_customers: int = 3
+    # Authentication: use either service account OR OAuth
+    service_account_path: Optional[str] = None
+    oauth_client_secrets: Optional[str] = None
+    oauth_token_path: Optional[str] = None
 
 
 class ConfigManager:
@@ -64,11 +67,12 @@ class ConfigManager:
         if not config.gemini_api_key:
             return False, "Gemini API key is required"
         
-        if not config.service_account_path:
-            return False, "Service account path is required"
+        # Check authentication method
+        has_service_account = config.service_account_path and Path(config.service_account_path).exists()
+        has_oauth = config.oauth_client_secrets and Path(config.oauth_client_secrets).exists()
         
-        if not Path(config.service_account_path).exists():
-            return False, f"Service account file not found: {config.service_account_path}"
+        if not has_service_account and not has_oauth:
+            return False, "Either service account or OAuth client secrets is required"
         
         if not config.root_folder_id:
             return False, "Root folder ID is required"

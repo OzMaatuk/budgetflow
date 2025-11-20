@@ -10,14 +10,8 @@ from drive import DrivePoller, Customer, PDFFile
 from llm.vision_categorizer import VisionCategorizer
 from llm.aggregator import Aggregator
 from sheets.generator import SheetsGenerator
-from utils.logger import (
-    get_logger,
-    set_customer_context,
-    PDFError,
-    LLMError,
-    SheetsError,
-    NetworkError
-)
+from utils.logger import get_logger, set_customer_context
+from utils.exceptions import PDFError, LLMError, SheetsError, NetworkError
 from utils.hash_registry import HashRegistry
 
 logger = get_logger()
@@ -47,8 +41,10 @@ class ProcessingOrchestrator:
         
         # Initialize components
         self.drive_poller = DrivePoller(
-            config.service_account_path,
-            config.root_folder_id
+            root_folder_id=config.root_folder_id,
+            service_account_path=config.service_account_path,
+            oauth_client_secrets=config.oauth_client_secrets,
+            oauth_token_path=config.oauth_token_path
         )
         
         categories_path = Path(__file__).parent.parent / "resources" / "categories.json"
@@ -62,9 +58,11 @@ class ProcessingOrchestrator:
         self.aggregator = Aggregator()
         
         self.sheets_generator = SheetsGenerator(
-            config.service_account_path,
-            config.root_folder_id,
-            categories_path
+            root_folder_id=config.root_folder_id,
+            categories_path=categories_path,
+            service_account_path=config.service_account_path,
+            oauth_client_secrets=config.oauth_client_secrets,
+            oauth_token_path=config.oauth_token_path
         )
         
         self.hash_registry = HashRegistry()

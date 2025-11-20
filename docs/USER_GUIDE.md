@@ -30,7 +30,51 @@ BudgetFlow automatically processes your bank statements and updates your budget 
 2. Click "Create API Key"
 3. Copy the key (you'll need it during setup)
 
-### Step 2: Create Google Service Account
+### Step 2: Choose Authentication Method
+
+BudgetFlow supports two authentication methods:
+
+#### Option A: OAuth 2.0 (Recommended for Personal Use)
+
+**Why OAuth 2.0?**
+- Uses your personal Google Drive storage quota
+- No service account needed
+- Works with free Gmail accounts
+- One-time browser authorization, then fully automated
+
+**Setup Steps:**
+
+1. **Configure OAuth Consent Screen** (CRITICAL STEP)
+   - Go to [Google Cloud Console - OAuth Consent Screen](https://console.cloud.google.com/apis/credentials/consent)
+   - Select your project (or create new)
+   - Choose **"External"** user type (for free Gmail accounts)
+   - Fill in required fields:
+     - App name: "BudgetFlow"
+     - User support email: Your email
+     - Developer contact email: Your email
+   - Click **"Save and Continue"**
+   - On Scopes page, click **"Save and Continue"**
+   - **CRITICAL:** On Test Users page:
+     - Click **"Add Users"**
+     - Add your Gmail address
+     - Click **"Save"**
+   - ⚠️ **Without adding yourself as test user, you'll get "Error 403: access_denied"**
+
+2. **Create OAuth 2.0 Credentials**
+   - Go to [Google Cloud Console - Credentials](https://console.cloud.google.com/apis/credentials)
+   - Click **"Create Credentials"** → **"OAuth client ID"**
+   - Application type: **Desktop app**
+   - Name: "BudgetFlow Desktop Client"
+   - Click **Create**
+   - Download the JSON file
+   - Rename it to `client_secrets.json`
+
+3. **Enable Required APIs**
+   - Google Sheets API
+   - Google Drive API
+   - Enable at: https://console.cloud.google.com/apis/library
+
+#### Option B: Service Account (For Advanced Users)
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select existing
@@ -56,10 +100,17 @@ BudgetFlow automatically processes your bank statements and updates your budget 
 2. Run the executable
 3. Complete the setup wizard:
    - Enter Gemini API key
-   - Select service account JSON file
+   - **Choose authentication method:**
+     - **OAuth 2.0 (Recommended):** Select `client_secrets.json` file
+     - **Service Account:** Select service account JSON file
    - Enter Root Folder ID
    - Set polling interval (default: 5 minutes)
 4. Click "Validate & Save"
+5. **If using OAuth:** 
+   - A browser window will open immediately for authorization
+   - Log in with your Google account
+   - Grant the requested permissions
+   - You'll see a success message when authorization is complete
 
 ### Step 5: Install as Service
 
@@ -134,7 +185,42 @@ The Raw Data tab logs every transaction:
 - **Values are additive** - uploading the same statement twice doubles the amounts
 - **Duplicates are detected** - same file won't process twice
 
-## Troubleshooting
+## OAuth Troubleshooting
+
+### Error 403: access_denied
+
+**Error Message:** "budgetflow has not completed the Google verification process"
+
+**Cause:** User not added as test user in OAuth consent screen
+
+**Solution:**
+1. Go to [OAuth Consent Screen](https://console.cloud.google.com/apis/credentials/consent)
+2. Click on Test Users
+3. Add your Gmail address
+4. Save changes
+5. Re-run setup wizard
+
+### client_secrets.json not found
+
+**Solution:**
+- Make sure you downloaded and renamed the OAuth credentials file
+- Place it in the project root directory
+- Use the setup wizard file picker to select it
+
+### Access blocked: This app's request is invalid
+
+**Solution:**
+- Verify OAuth consent screen is configured
+- Check your email is listed under Test Users
+- Ensure you selected "Desktop app" type (not Web application)
+
+### Token expired or invalid
+
+**Solution:**
+- Delete `token.pickle` file (located at `%LOCALAPPDATA%\BudgetFlow\token.pickle`)
+- Re-run setup wizard to re-authorize
+
+## General Troubleshooting
 
 ### Service Not Running
 

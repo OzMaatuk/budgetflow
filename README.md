@@ -6,6 +6,7 @@ BudgetFlow is an automated finance-processing system that runs locally on Window
 
 ## Features
 
+- **Flexible Authentication**: OAuth 2.0 (personal accounts) or Service Account support
 - **Multi-Customer Support**: Process statements for multiple customers with isolated data
 - **Automatic Processing**: Polls Google Drive and processes new PDFs automatically
 - **Hebrew Support**: Native Hebrew support via Gemini Vision API
@@ -34,9 +35,12 @@ BudgetFlow is an automated finance-processing system that runs locally on Window
 3. Run `BudgetFlow.exe` - setup wizard appears automatically
 4. Enter your credentials:
    - Gemini API key ([get here](https://aistudio.google.com/app/apikey))
-   - Google Service Account JSON file
+   - **Choose authentication method:**
+     - **OAuth 2.0** (recommended): Select `client_secrets.json` - see [User Guide](docs/USER_GUIDE.md#step-2-choose-authentication-method)
+     - **Service Account**: Select service account JSON file
    - Google Drive folder ID
 5. Click "Validate & Save"
+6. **If using OAuth**: Browser opens immediately for authorization during setup
 
 **Optional**: Install as Windows service (run as admin):
 ```powershell
