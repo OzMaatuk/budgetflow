@@ -49,7 +49,7 @@ class DrivePoller:
         self.service = build("drive", "v3", credentials=credentials)
         logger.info("Drive API initialized")
     
-    @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
+    @retry_with_backoff(max_retries=6, retryable_exceptions=(RetryableNetworkError, HttpError))
     def discover_customers(self) -> List[Customer]:
         """
         Discover customer folders in root folder.
@@ -91,7 +91,7 @@ class DrivePoller:
             logger.error(f"Failed to discover customers: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
-    @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
+    @retry_with_backoff(max_retries=6, retryable_exceptions=(RetryableNetworkError, HttpError))
     def scan_customer_folder(self, customer: Customer) -> List[PDFFile]:
         """
         Scan customer folder for PDF files.
@@ -135,7 +135,7 @@ class DrivePoller:
             logger.error(f"Failed to scan customer folder {customer.id}: {e}")
             raise RetryableNetworkError(f"Drive API error: {e}")
     
-    @retry_with_backoff(max_retries=3, retryable_exceptions=(RetryableNetworkError, HttpError))
+    @retry_with_backoff(max_retries=6, retryable_exceptions=(RetryableNetworkError, HttpError))
     def download_pdf(self, pdf_file: PDFFile, customer_id: str) -> Path:
         """
         Download PDF file to local temp storage.
