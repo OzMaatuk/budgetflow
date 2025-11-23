@@ -91,6 +91,8 @@ class VisionCategorizer:
             if not response.text:
                 raise LLMError("Vision API returned empty response")
             
+            logger.debug(json.dumps(response.text[:500], ensure_ascii=False))
+
             # Parse JSON response
             transactions_data = self._parse_response(response.text)
             
