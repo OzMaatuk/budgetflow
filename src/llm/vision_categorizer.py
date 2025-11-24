@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from datetime import datetime
 from decimal import Decimal
-from typing import List, Dict
+from typing import List, Dict, Optional
 from google import genai
 from pydantic import BaseModel, Field, ValidationError
 

@@ -67,6 +67,8 @@ class HashRegistry:
                 if isinstance(record.processed_at, datetime)
                 else str(record.processed_at)
             )
+            # Normalize status to lowercase for consistent queries (e.g., 'success')
+            status_normalized = (record.status or "").lower()
             cursor.execute("""
                 INSERT OR REPLACE INTO processed_files 
                 (hash, customer_id, file_name, status, processed_at)
@@ -75,7 +77,7 @@ class HashRegistry:
                 record.file_hash,
                 record.customer_id,
                 record.file_name,
-                record.status,
+                status_normalized,
                 processed_at
             ))
             conn.commit()
