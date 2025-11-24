@@ -250,6 +250,20 @@ Do not include any explanations or markdown formatting, just the JSON object.
                 if cleaned.startswith("json"):
                     cleaned = cleaned[4:].strip()
             
+            # Normalize smart quotes to standard double-quote
+            cleaned = cleaned.replace('“', '"').replace('”', '"')
+
+            # Remove common trailing commas before closing brackets/braces
+            cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
+
+            # If the model wrapped JSON in text, try to extract the first JSON object/array
+            json_match = re.search(r'\{.*\}|\[.*\]', cleaned, re.DOTALL)
+            if json_match:
+                cleaned = json_match.group(0)
+
+            # Escape unescaped double quotes that appear between word characters (helps with Hebrew inner-quotes)
+            cleaned = re.sub(r'(?<=[\w\u0590-\u05FF])"(?=[\w\u0590-\u05FF])', r'\\"', cleaned)
+
             # Parse JSON
             data = json.loads(cleaned)
             
