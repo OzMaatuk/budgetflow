@@ -1,4 +1,5 @@
 """LLM-based transaction categorization using native Google AI."""
+import re
 import json
 import time
 from pathlib import Path
@@ -91,7 +92,7 @@ class VisionCategorizer:
             if not response.text:
                 raise LLMError("Vision API returned empty response")
             
-            logger.debug(json.dumps(response.text[:500], ensure_ascii=False))
+            logger.info(json.dumps(response.text[:500], ensure_ascii=False))
 
             # Parse JSON response
             transactions_data = self._parse_response(response.text)
@@ -186,7 +187,9 @@ Return ONLY a valid JSON object in this format:
   ]
 }}
 
-Do not include any explanations or markdown formatting, just the JSON object."""
+Do not include any explanations or markdown formatting, just the JSON object.
+*** NOTE: you should ignore credit card charges when they appears in the bank statement. ***
+"""
     
 
     
