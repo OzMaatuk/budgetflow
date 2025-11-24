@@ -112,13 +112,58 @@ class VisionCategorizer:
     def _create_transactions(self, transactions_data: List[Dict], customer_id: str) -> List[Transaction]:
         """Convert parsed data to Transaction objects."""
         transactions = []
-        
+        def _parse_date_str(date_str: str) -> Optional[datetime]:
+            """Try multiple common date formats and normalize two-digit years to 2000s when sensible."""
+            if not date_str or not isinstance(date_str, str):
+                return None
+
+            fmt_candidates = [
+                "%d/%m/%Y",
+                "%d/%m/%y",
+                "%Y-%m-%d",
+                "%d-%m-%Y",
+                "%d.%m.%Y",
+                "%d.%m.%y",
+                "%d %b %Y",
+                "%d %b %y",
+            ]
+
+            for fmt in fmt_candidates:
+                try:
+                    dt = datetime.strptime(date_str, fmt)
+                    # If parsed year looks like a 2-digit mapping to 1900s, and original had 2-digit year,
+                    # normalize to 2000+ for reasonable recent dates (e.g., '25' -> 2025).
+                    if dt.year < 1900:
+                        # shouldn't normally happen, but safeguard
+                        dt = dt.replace(year=dt.year + 2000)
+                    # If format used %y and resulted in a year < 2000, and input had two-digit year,
+                    # adjust to 2000s (covers strptime behaviour differences across environments).
+                    if fmt.endswith('%y') and dt.year < 2000:
+                        dt = dt.replace(year=dt.year + 2000)
+                    return dt
+                except Exception:
+                    continue
+
+            # Try heuristic: split by non-digits and attempt to build date
+            parts = re.split(r'[^0-9]+', date_str)
+            parts = [p for p in parts if p]
+            if len(parts) >= 3:
+                try:
+                    d, m, y = parts[0], parts[1], parts[2]
+                    if len(y) == 2:
+                        y = '20' + y
+                    dt = datetime(int(y), int(m), int(d))
+                    return dt
+                except Exception:
+                    return None
+
+            return None
+
         for txn_data in transactions_data:
             # Parse date
-            try:
-                date = datetime.strptime(txn_data["date"], "%d/%m/%Y")
-            except ValueError:
-                logger.warning(f"Invalid date format: {txn_data['date']}, skipping transaction")
+            date = _parse_date_str(txn_data.get("date", ""))
+            if not date:
+                logger.warning(f"Invalid date format: {txn_data.get('date')}, skipping transaction")
                 continue
             
             # Assign category
@@ -130,10 +175,10 @@ class VisionCategorizer:
             
             transaction = Transaction(
                 date=date,
-                description=txn_data["description"],
-                amount=Decimal(str(txn_data["amount"])),
+                description=txn_data.get("description", ""),
+                amount=Decimal(str(txn_data.get("amount", 0.0))),
                 category=category,
-                raw_text=f"{txn_data['date']} {txn_data['description']} {txn_data['amount']}"
+                raw_text=f"{txn_data.get('date', '')} {txn_data.get('description','')} {txn_data.get('amount','')}"
             )
             transactions.append(transaction)
         
