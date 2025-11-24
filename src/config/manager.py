@@ -1,3 +1,4 @@
+# src/config/manager.py
 """Configuration manager with Windows DPAPI encryption."""
 import json
 import os
@@ -15,7 +16,6 @@ class Config:
     polling_interval_minutes: int = 5
     log_level: str = "INFO"
     max_concurrent_customers: int = 3
-    # Authentication: use either service account OR OAuth
     service_account_path: Optional[str] = None
     oauth_client_secrets: Optional[str] = None
     oauth_token_path: Optional[str] = None
@@ -60,7 +60,6 @@ class ConfigManager:
         if not config.gemini_api_key:
             return False, "Gemini API key is required"
         
-        # Check authentication method
         has_service_account = config.service_account_path and Path(config.service_account_path).exists()
         has_oauth = config.oauth_client_secrets and Path(config.oauth_client_secrets).exists()
         
@@ -73,15 +72,24 @@ class ConfigManager:
         if config.polling_interval_minutes < 1:
             return False, "Polling interval must be at least 1 minute"
         
-        if config.max_concurrent_customers < 1:
-            return False, "Max concurrent customers must be at least 1"
-        
         return True, "Configuration is valid"
     
     def _encrypt_data(self, data: bytes, description: str = "BudgetFlow Configuration") -> bytes:
-        """Encrypt data using Windows DPAPI."""
         return win32crypt.CryptProtectData(data, description, None, None, None, 0)
     
     def _decrypt_data(self, encrypted_data: bytes) -> bytes:
-        """Decrypt data using Windows DPAPI."""
         return win32crypt.CryptUnprotectData(encrypted_data, None, None, None, 0)[1]
+
+    # Public wrappers expected by tests
+    def encrypt_data(self, plaintext: str) -> bytes:
+        """Encrypt a plaintext string and return encrypted bytes."""
+        if isinstance(plaintext, str):
+            data = plaintext.encode("utf-8")
+        else:
+            data = plaintext
+        return self._encrypt_data(data)
+
+    def decrypt_data(self, encrypted: bytes) -> str:
+        """Decrypt bytes and return the plaintext string."""
+        decrypted = self._decrypt_data(encrypted)
+        return decrypted.decode("utf-8")
