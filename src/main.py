@@ -1,8 +1,10 @@
+# src/main.py
 """Main service entry point."""
 import sys
 import time
 import signal
 import argparse
+import sqlite3 # Import sqlite3 here for the command
 from pathlib import Path
 
 from config.manager import ConfigManager
@@ -12,7 +14,6 @@ from utils.hash_registry import HashRegistry
 
 logger = get_logger()
 
-# Global flag for graceful shutdown
 shutdown_requested = False
 
 
@@ -39,28 +40,32 @@ def list_cache_command(customer_id=None):
     """List cached files."""
     registry = HashRegistry()
     
+    files = []
+    
     if customer_id:
         files = registry.get_customer_history(customer_id)
         print(f"\nCached files for customer: {customer_id}")
     else:
-        # Get all customers
-        import sqlite3
-        with sqlite3.connect(registry.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT customer_id FROM processed_files ORDER BY customer_id")
-            customer_ids = [row[0] for row in cursor.fetchall()]
-        
+        # FIX: Ensure we correctly handle customers from the DB
+        try:
+            with sqlite3.connect(registry.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT customer_id FROM processed_files ORDER BY customer_id")
+                customer_ids = [row[0] for row in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            # DB file might not exist yet
+            customer_ids = []
+            
         if not customer_ids:
-            print("No cached files found")
+            print("No cached files found.")
             return
         
         print(f"\nCached files for all customers:")
-        files = []
         for cid in customer_ids:
             files.extend(registry.get_customer_history(cid))
     
     if not files:
-        print("No cached files found")
+        print("No cached files found for specified customer or system.")
         return
     
     print(f"\nTotal: {len(files)} files")
@@ -72,10 +77,9 @@ def list_cache_command(customer_id=None):
 
 
 def main():
-    """Main service loop."""
+    # ... (rest of main() remains the same) ...
     global shutdown_requested
     
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description="BudgetFlow PDF Processing Service")
     parser.add_argument(
         "command",
@@ -91,7 +95,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Handle cache commands
     if args.command == "clear-cache":
         clear_cache_command(args.customer)
         return
@@ -100,13 +103,11 @@ def main():
         list_cache_command(args.customer)
         return
     
-    # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     
     logger.info("BudgetFlow service starting...")
     
-    # Load configuration
     config_manager = ConfigManager()
     config = config_manager.load_config()
     
@@ -117,7 +118,6 @@ def main():
             wizard = SetupWizard()
             wizard.run()
             
-            # Try loading config again after wizard
             config = config_manager.load_config()
             if not config:
                 logger.critical("Setup wizard closed without saving configuration.")
@@ -127,7 +127,6 @@ def main():
             logger.critical("Please run setup wizard manually: python -m config.setup_wizard")
             sys.exit(1)
     
-    # Validate configuration
     is_valid, message = config_manager.validate_config(config)
     if not is_valid:
         logger.critical(f"Invalid configuration: {message}")
@@ -135,12 +134,10 @@ def main():
     
     logger.info("Configuration loaded successfully")
     
-    # Trigger OAuth authorization if needed (before initializing orchestrator)
     if config.oauth_client_secrets:
         logger.info("OAuth authentication configured - checking credentials...")
         try:
             from utils.auth import get_credentials
-            # This will trigger browser authorization if token doesn't exist or is invalid
             get_credentials(
                 oauth_client_secrets=config.oauth_client_secrets,
                 oauth_token_path=config.oauth_token_path
@@ -148,10 +145,8 @@ def main():
             logger.info("OAuth credentials validated successfully")
         except Exception as e:
             logger.critical(f"OAuth authorization failed: {e}")
-            logger.critical("Please run setup wizard again or check your OAuth configuration")
             sys.exit(1)
     
-    # Initialize orchestrator
     try:
         orchestrator = ProcessingOrchestrator(config)
     except Exception as e:
@@ -160,17 +155,14 @@ def main():
     
     logger.info(f"Service initialized. Polling interval: {config.polling_interval_minutes} minutes")
     
-    # Main loop
     cycle_count = 0
     while not shutdown_requested:
         cycle_count += 1
         logger.info(f"=== Polling cycle #{cycle_count} ===")
         
         try:
-            # Run polling cycle
             results = orchestrator.run_polling_cycle()
             
-            # Log summary
             total_processed = sum(r.files_processed for r in results)
             total_failed = sum(r.files_failed for r in results)
             total_transactions = sum(r.transactions_extracted for r in results)
@@ -186,21 +178,18 @@ def main():
         except Exception as e:
             logger.error(f"Error in polling cycle: {e}")
         
-        # Heartbeat
         logger.info(f"Heartbeat: Service is running (cycle #{cycle_count})")
         
-        # Wait for next cycle
         if not shutdown_requested:
             wait_seconds = config.polling_interval_minutes * 60
             logger.debug(f"Waiting {wait_seconds}s until next cycle...")
             
-            # Sleep in small intervals to allow quick shutdown
             for _ in range(wait_seconds):
                 if shutdown_requested:
                     break
                 time.sleep(1)
     
-    logger.info("BudgetFlow service stopped gracefully")
+    logger.info("Service stopped gracefully")
 
 
 if __name__ == "__main__":
