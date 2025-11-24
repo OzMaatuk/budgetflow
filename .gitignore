@@ -1,12 +1,15 @@
 # Sensitive files
 .env
 *.json
+*.pdf
 !package.json
 !package-lock.json
 !tsconfig.json
 serviceaccountkey.json
 client_secrets.json
 token.pickle
+combined.txt
+test*.txt
 
 # Python
 __pycache__/
@@ -86,7 +89,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-*.pdf
-
-combined.txt
