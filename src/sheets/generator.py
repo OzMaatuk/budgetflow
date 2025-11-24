@@ -1,26 +1,22 @@
-# src/sheets/generator.py
-"""Google Sheets generator, implementing two-sheet (Budget/Raw Data) structure with additive monthly aggregation."""
+"""Google Sheets generator for budget reports with additive monthly aggregation."""
 import json
 import re
 from pathlib import Path
 from decimal import Decimal
-from typing import Optional, List, Dict
+from typing import Optional, List
 from datetime import datetime
-from dataclasses import dataclass
 
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 from utils.logger import get_logger
-from utils.exceptions import SheetsError, RetryableNetworkError
 from utils.retry import retry_with_backoff
 from utils.auth import get_credentials
-from drive.models import Customer, PDFFile
+from drive.models import Customer
 from llm.models import Transaction, AggregatedData
 
 logger = get_logger()
 
-# Renamed from SheetsReporter to SheetsGenerator for Orchestrator compatibility
+
 class SheetsGenerator:
     """Manages system configuration with encryption and sheet updates."""
 

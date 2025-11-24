@@ -1,0 +1,54 @@
+# BudgetFlow Configuration File
+# This file contains default settings that can be overridden by the setup wizard
+
+# Application Settings
+app:
+  name: "BudgetFlow"
+  version: "1.0.0"
+  
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  max_file_size_mb: 10
+  backup_count: 30
+  
+# Processing Configuration
+processing:
+  polling_interval_minutes: 5
+  max_concurrent_customers: 3
+  chunk_size_mb: 5  # For file downloads
+  
+# LLM Configuration
+llm:
+  model_name: "gemini-2.5-flash-lite"
+  max_retries: 3
+  initial_delay_seconds: 2
+  backoff_factor: 2
+  
+# Vendor Cache Configuration
+vendor_cache:
+  fuzzy_match_threshold: 3  # Levenshtein distance
+  
+# Retry Configuration
+retry:
+  max_retries: 9
+  initial_delay_seconds: 2
+  backoff_factor: 2
+  
+# File Paths (relative to LOCALAPPDATA/BudgetFlow)
+paths:
+  config_dir: "."
+  config_file: "config.json"
+  logs_dir: "logs"
+  log_file: "logs/service.log"
+  temp_dir: "tmp"
+  vendors_dir: "vendors"
+  database_file: "budgetflow.db"
+  oauth_token_file: "token.pickle"
+  
+# Google API Scopes
+google_api:
+  scopes:
+    - "https://www.googleapis.com/auth/drive"
+    - "https://www.googleapis.com/auth/drive.file"
+    - "https://www.googleapis.com/auth/spreadsheets"

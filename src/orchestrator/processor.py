@@ -1,23 +1,19 @@
-# src/orchestrator/processor.py
-"""Core processing logic with Thread-Local Safety."""
+"""Core processing logic with thread-safe customer processing."""
 import concurrent.futures
 from datetime import datetime
 from typing import List, Dict
 from decimal import Decimal
-import itertools 
-import ssl
 from dataclasses import dataclass
 from pathlib import Path
 
 from config.manager import Config
 from drive.poller import DrivePoller
-from drive.models import Customer, PDFFile
-from gemini.processor import GeminiProcessor, Transaction 
+from drive.models import Customer
+from gemini.processor import GeminiProcessor
+from llm.models import Transaction
 from utils.logger import get_logger
 from utils.hash_registry import HashRegistry, FileRecord
 from sheets.generator import SheetsGenerator, AggregatedData
-from llm.vision_categorizer import VisionCategorizer
-from llm.aggregator import Aggregator
 
 logger = get_logger()
 
@@ -71,31 +67,12 @@ class ProcessingOrchestrator:
         return results
 
     def process_customer_thread_safe(self, customer: Customer) -> ProcessingResult:
-        """Runs inside a worker thread with fresh Drive/Sheets clients."""
+        """Process customer in a worker thread with thread-local Drive/Sheets clients."""
         logger.info(f"Starting processing for customer {customer.id}")
         result = ProcessingResult(customer.id)
         
-        thread_drive = DrivePoller(
-            root_folder_id=self.config.root_folder_id,
-            service_account_path=self.config.service_account_path,
-            oauth_client_secrets=self.config.oauth_client_secrets,
-            oauth_token_path=self.config.oauth_token_path
-        )
-
-        # Resolve categories file path relative to repository root (`resources/categories.json`)
-        try:
-            categories_path = Path(__file__).resolve().parents[2] / "resources" / "categories.json"
-        except Exception:
-            categories_path = None
-
-        thread_sheets = SheetsGenerator(
-            root_folder_id=self.config.root_folder_id,
-            service_account_path=self.config.service_account_path,
-            oauth_client_secrets=self.config.oauth_client_secrets,
-            oauth_token_path=self.config.oauth_token_path,
-            categories_path=categories_path
-        )
-        
+        thread_drive = self._create_thread_drive_client()
+        thread_sheets = self._create_thread_sheets_client()
         all_new_transactions: List[Transaction] = []
 
         try:
@@ -115,21 +92,55 @@ class ProcessingOrchestrator:
                 else:
                     result.files_failed += 1
             
-            # 4. Aggregate and Update Budget Sheet (THE ORIGINAL PLAN)
             if all_new_transactions:
-                aggregated_data = self._aggregate_transactions(customer.id, all_new_transactions)
-                
-                # 4a. Append raw data to 'Raw Data' sheet
-                thread_sheets.append_raw_data(customer.report_id, all_new_transactions, f"Batch_{datetime.now().strftime('%Y%m%d')}") 
-                
-                # 4b. Update monthly totals in 'Budget' sheet
-                thread_sheets.update_budget(customer.report_id, aggregated_data)
-
+                self._update_sheets_with_transactions(
+                    thread_sheets, customer, all_new_transactions
+                )
 
         except Exception as e:
-            logger.error(f"Error in customer loop {customer.id}: {e}")
+            logger.error(f"Error processing customer {customer.id}: {e}")
             
         return result
+    
+    def _create_thread_drive_client(self) -> DrivePoller:
+        """Create thread-local Drive client."""
+        return DrivePoller(
+            root_folder_id=self.config.root_folder_id,
+            service_account_path=self.config.service_account_path,
+            oauth_client_secrets=self.config.oauth_client_secrets,
+            oauth_token_path=self.config.oauth_token_path
+        )
+    
+    def _create_thread_sheets_client(self) -> SheetsGenerator:
+        """Create thread-local Sheets client."""
+        categories_path = self._get_categories_path()
+        return SheetsGenerator(
+            root_folder_id=self.config.root_folder_id,
+            service_account_path=self.config.service_account_path,
+            oauth_client_secrets=self.config.oauth_client_secrets,
+            oauth_token_path=self.config.oauth_token_path,
+            categories_path=categories_path
+        )
+    
+    def _get_categories_path(self) -> Path:
+        """Get path to categories.json file."""
+        try:
+            return Path(__file__).resolve().parents[2] / "resources" / "categories.json"
+        except Exception:
+            return None
+    
+    def _update_sheets_with_transactions(
+        self, 
+        sheets: SheetsGenerator, 
+        customer: Customer, 
+        transactions: List[Transaction]
+    ) -> None:
+        """Update Google Sheets with aggregated transactions."""
+        aggregated_data = self._aggregate_transactions(customer.id, transactions)
+        batch_name = f"Batch_{datetime.now().strftime('%Y%m%d')}"
+        
+        sheets.append_raw_data(customer.report_id, transactions, batch_name)
+        sheets.update_budget(customer.report_id, aggregated_data)
 
     def _process_single_file(self, pdf: PDFFile, customer: Customer, drive: DrivePoller, sheets: SheetsGenerator) -> tuple[List[Transaction], bool]:
         """Process a single PDF file. Returns (transactions, success_status)."""
