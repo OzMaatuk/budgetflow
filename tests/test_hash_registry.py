@@ -4,7 +4,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from utils.hash_registry import HashRegistry
+from utils.hash_registry import HashRegistry, FileRecord
 
 
 class TestHashRegistry(unittest.TestCase):
@@ -16,7 +16,7 @@ class TestHashRegistry(unittest.TestCase):
         self.registry = HashRegistry()
         # Override database path for testing
         self.registry.db_path = self.test_dir / "test_registry.db"
-        self.registry._init_database()
+        self.registry._init_db()
     
     def tearDown(self):
         """Clean up test fixtures."""
@@ -32,7 +32,7 @@ class TestHashRegistry(unittest.TestCase):
         self.assertFalse(self.registry.is_processed(customer_id, file_hash))
         
         # Mark as processed
-        self.registry.mark_processed(customer_id, file_hash, file_name, "success")
+        self.registry.mark_processed(FileRecord(customer_id, file_hash, file_name, "success"))
         
         # Now should be processed
         self.assertTrue(self.registry.is_processed(customer_id, file_hash))
@@ -41,7 +41,7 @@ class TestHashRegistry(unittest.TestCase):
         """Test that customers are isolated."""
         file_hash = "abc123"
         
-        self.registry.mark_processed("customer1", file_hash, "test.pdf", "success")
+        self.registry.mark_processed(FileRecord("customer1", file_hash, "test.pdf", "success"))
         
         # Same hash for different customer should not be processed
         self.assertFalse(self.registry.is_processed("customer2", file_hash))
@@ -50,8 +50,8 @@ class TestHashRegistry(unittest.TestCase):
         """Test retrieving customer history."""
         customer_id = "test_customer"
         
-        self.registry.mark_processed(customer_id, "hash1", "file1.pdf", "success")
-        self.registry.mark_processed(customer_id, "hash2", "file2.pdf", "error")
+        self.registry.mark_processed(FileRecord(customer_id, "hash1", "file1.pdf", "success"))
+        self.registry.mark_processed(FileRecord(customer_id, "hash2", "file2.pdf", "error"))
         
         history = self.registry.get_customer_history(customer_id)
         

@@ -68,8 +68,8 @@ class TestConfigManager(unittest.TestCase):
     def test_encrypt_decrypt(self):
         """Test encryption and decryption."""
         original = "sensitive_data"
-        encrypted = self.config_manager.encrypt_sensitive_data(original)
-        decrypted = self.config_manager.decrypt_sensitive_data(encrypted)
+        encrypted = self.config_manager.encrypt_data(original)
+        decrypted = self.config_manager.decrypt_data(encrypted)
         
         self.assertEqual(original, decrypted)
         self.assertNotEqual(original, encrypted)
