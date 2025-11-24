@@ -1,277 +1,207 @@
-"""Processing orchestrator for end-to-end workflow."""
-from pathlib import Path
+# src/orchestrator/processor.py
+"""Core processing logic with Thread-Local Safety."""
+import concurrent.futures
+from datetime import datetime
+from typing import List, Dict
+from decimal import Decimal
+import itertools 
+import ssl
 from dataclasses import dataclass
-from typing import List
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
+from pathlib import Path
 
-from config import Config
-from drive import DrivePoller, Customer, PDFFile
+from config.manager import Config
+from drive.poller import DrivePoller
+from drive.models import Customer, PDFFile
+from gemini.processor import GeminiProcessor, Transaction 
+from utils.logger import get_logger
+from utils.hash_registry import HashRegistry, FileRecord
+from sheets.generator import SheetsGenerator, AggregatedData
 from llm.vision_categorizer import VisionCategorizer
 from llm.aggregator import Aggregator
-from sheets.generator import SheetsGenerator
-from utils.logger import get_logger, set_customer_context
-from utils.exceptions import PDFError, LLMError, SheetsError, NetworkError
-from utils.hash_registry import HashRegistry
 
 logger = get_logger()
 
-
 @dataclass
 class ProcessingResult:
-    """Result of processing cycle."""
     customer_id: str
-    files_processed: int
-    files_failed: int
-    transactions_extracted: int
-    duration_seconds: float
-
+    files_processed: int = 0
+    files_failed: int = 0
+    transactions_extracted: int = 0
 
 class ProcessingOrchestrator:
-    """Orchestrates the entire processing pipeline."""
-    
+    """Orchestrates the flow: Drive -> Gemini -> Sheets -> Archive."""
+
     def __init__(self, config: Config):
-        """
-        Initialize orchestrator.
-        
-        Args:
-            config: System configuration
-        """
         self.config = config
-        
-        # Initialize components
-        self.drive_poller = DrivePoller(
-            root_folder_id=config.root_folder_id,
-            service_account_path=config.service_account_path,
-            oauth_client_secrets=config.oauth_client_secrets,
-            oauth_token_path=config.oauth_token_path
-        )
-        
-        categories_path = Path(__file__).parent.parent / "resources" / "categories.json"
-        
-        # Use Vision-based categorizer (processes PDFs directly)
-        self.vision_categorizer = VisionCategorizer(
-            config.gemini_api_key,
-            categories_path
-        )
-        
-        self.aggregator = Aggregator()
-        
-        self.sheets_generator = SheetsGenerator(
-            root_folder_id=config.root_folder_id,
-            categories_path=categories_path,
-            service_account_path=config.service_account_path,
-            oauth_client_secrets=config.oauth_client_secrets,
-            oauth_token_path=config.oauth_token_path
-        )
-        
+        self.gemini = GeminiProcessor(config)
         self.hash_registry = HashRegistry()
-        
-        logger.info("Processing Orchestrator initialized with Vision API")
-    
+        self.discovery_drive = DrivePoller(
+            root_folder_id=config.root_folder_id,
+            service_account_path=config.service_account_path,
+            oauth_client_secrets=config.oauth_client_secrets,
+            oauth_token_path=config.oauth_token_path
+        )
+
+
     def run_polling_cycle(self) -> List[ProcessingResult]:
-        """
-        Run one polling cycle for all customers.
-        
-        Returns:
-            List of ProcessingResult objects
-        """
-        set_customer_context(None)
-        logger.info("Starting polling cycle")
-        
-        start_time = time.time()
-        
-        # Discover customers
-        customers = self.drive_poller.discover_customers()
-        
-        if not customers:
-            logger.info("No customers found")
+        """Run one full polling cycle across all customers."""
+        try:
+            customers = self.discovery_drive.discover_customers()
+        except Exception as e:
+            logger.error(f"Failed to discover customers: {e}")
             return []
-        
-        # Process customers concurrently
+
         results = []
-        with ThreadPoolExecutor(max_workers=self.config.max_concurrent_customers) as executor:
-            futures = {
-                executor.submit(self.process_customer, customer): customer
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.max_concurrent_customers) as executor:
+            future_to_customer = {
+                executor.submit(self.process_customer_thread_safe, customer): customer 
                 for customer in customers
             }
             
-            for future in as_completed(futures):
-                customer = futures[future]
+            for future in concurrent.futures.as_completed(future_to_customer):
+                customer = future_to_customer[future]
                 try:
                     result = future.result()
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"Unexpected error processing customer {customer.id}: {e}")
+                    logger.error(f"Critical error processing customer {customer.id}: {e}")
+                    results.append(ProcessingResult(customer.id, files_failed=1))
+
+        return results
+
+    def process_customer_thread_safe(self, customer: Customer) -> ProcessingResult:
+        """Runs inside a worker thread with fresh Drive/Sheets clients."""
+        logger.info(f"Starting processing for customer {customer.id}")
+        result = ProcessingResult(customer.id)
         
-        duration = time.time() - start_time
-        logger.info(
-            f"Polling cycle complete: {len(results)} customers processed in {duration:.1f}s"
+        thread_drive = DrivePoller(
+            root_folder_id=self.config.root_folder_id,
+            service_account_path=self.config.service_account_path,
+            oauth_client_secrets=self.config.oauth_client_secrets,
+            oauth_token_path=self.config.oauth_token_path
+        )
+
+        # Resolve categories file path relative to repository root (`resources/categories.json`)
+        try:
+            categories_path = Path(__file__).resolve().parents[2] / "resources" / "categories.json"
+        except Exception:
+            categories_path = None
+
+        thread_sheets = SheetsGenerator(
+            root_folder_id=self.config.root_folder_id,
+            service_account_path=self.config.service_account_path,
+            oauth_client_secrets=self.config.oauth_client_secrets,
+            oauth_token_path=self.config.oauth_token_path,
+            categories_path=categories_path
         )
         
-        return results
-    
-    def process_customer(self, customer: Customer) -> ProcessingResult:
-        """
-        Process all PDFs for a customer.
-        
-        Args:
-            customer: Customer object
-            
-        Returns:
-            ProcessingResult
-        """
-        set_customer_context(customer.id)
-        logger.info(f"Processing customer: {customer.id}")
-        
-        start_time = time.time()
-        files_processed = 0
-        files_failed = 0
-        total_transactions = 0
-        
+        all_new_transactions: List[Transaction] = []
+
         try:
-            # Ensure folder structure
-            self.drive_poller.ensure_customer_structure(customer)
+            thread_drive.ensure_customer_structure(customer)
+            customer.report_id = thread_sheets.get_or_create_report(customer)
+            pdf_files = thread_drive.scan_customer_folder(customer)
             
-            # Scan for PDFs
-            pdf_files = self.drive_poller.scan_customer_folder(customer)
-            
-            if not pdf_files:
-                logger.debug(f"No PDF files found for customer {customer.id}")
-                return ProcessingResult(
-                    customer_id=customer.id,
-                    files_processed=0,
-                    files_failed=0,
-                    transactions_extracted=0,
-                    duration_seconds=time.time() - start_time
+            for pdf in pdf_files:
+                new_txns, success = self._process_single_file(
+                    pdf, customer, thread_drive, thread_sheets
                 )
+                
+                if success:
+                    result.files_processed += 1
+                    result.transactions_extracted += len(new_txns)
+                    all_new_transactions.extend(new_txns)
+                else:
+                    result.files_failed += 1
             
-            logger.info(f"Found {len(pdf_files)} PDF files for customer {customer.id}")
-            
-            # Process each PDF
-            for pdf_file in pdf_files:
-                try:
-                    transactions = self.process_pdf(customer, pdf_file)
-                    total_transactions += len(transactions)
-                    files_processed += 1
-                except Exception as e:
-                    logger.error(f"Failed to process {pdf_file.name}: {e}")
-                    files_failed += 1
-            
-            duration = time.time() - start_time
-            logger.info(
-                f"Customer {customer.id} complete: "
-                f"{files_processed} processed, {files_failed} failed, "
-                f"{total_transactions} transactions in {duration:.1f}s"
-            )
-            
-            return ProcessingResult(
-                customer_id=customer.id,
-                files_processed=files_processed,
-                files_failed=files_failed,
-                transactions_extracted=total_transactions,
-                duration_seconds=duration
-            )
-            
+            # 4. Aggregate and Update Budget Sheet (THE ORIGINAL PLAN)
+            if all_new_transactions:
+                aggregated_data = self._aggregate_transactions(customer.id, all_new_transactions)
+                
+                # 4a. Append raw data to 'Raw Data' sheet
+                thread_sheets.append_raw_data(customer.report_id, all_new_transactions, f"Batch_{datetime.now().strftime('%Y%m%d')}") 
+                
+                # 4b. Update monthly totals in 'Budget' sheet
+                thread_sheets.update_budget(customer.report_id, aggregated_data)
+
+
         except Exception as e:
-            logger.error(f"Failed to process customer {customer.id}: {e}")
-            return ProcessingResult(
-                customer_id=customer.id,
-                files_processed=files_processed,
-                files_failed=files_failed,
-                transactions_extracted=total_transactions,
-                duration_seconds=time.time() - start_time
-            )
-        finally:
-            set_customer_context(None)
-    
-    def process_pdf(self, customer: Customer, pdf_file: PDFFile) -> List:
-        """
-        Process a single PDF file.
-        
-        Args:
-            customer: Customer object
-            pdf_file: PDFFile object
+            logger.error(f"Error in customer loop {customer.id}: {e}")
             
-        Returns:
-            List of transactions
-        """
-        logger.info(f"Processing file: {pdf_file.name}")
-        
-        # Calculate hash
+        return result
+
+    def _process_single_file(self, pdf: PDFFile, customer: Customer, drive: DrivePoller, sheets: SheetsGenerator) -> tuple[List[Transaction], bool]:
+        """Process a single PDF file. Returns (transactions, success_status)."""
         local_path = None
+        transactions: List[Transaction] = []
         
         try:
-            # Download file
-            local_path = self.drive_poller.download_pdf(pdf_file, customer.id)
+            local_path = drive.download_pdf(pdf, customer.id)
             file_hash = self.hash_registry.calculate_hash(local_path)
             
-            # Check if already processed
             if self.hash_registry.is_processed(customer.id, file_hash):
-                logger.info(f"File already processed (duplicate): {pdf_file.name}")
-                self.drive_poller.move_to_duplicates(pdf_file, customer)
-                return []
+                logger.info(f"Skipping duplicate file {pdf.name}")
+                drive.move_to_duplicates(pdf, customer)
+                return [], True
+
+            transactions = self.gemini.process_pdf(customer, pdf)
             
-            # Extract and categorize transactions directly from PDF using Vision API
-            transactions = self.vision_categorizer.extract_transactions_from_pdf(
-                local_path,
-                customer.id
-            )
+            # Archive File
+            drive.move_to_archive(pdf, customer)
             
-            if not transactions:
-                logger.warning(f"No transactions extracted from {pdf_file.name}")
-                raise PDFError("No transactions found in PDF")
+            # Record Success
+            self.hash_registry.mark_processed(FileRecord(
+                file_hash=file_hash,
+                customer_id=customer.id,
+                file_name=pdf.name,
+                status="SUCCESS"
+            ))
             
-            # Aggregate
-            aggregated = self.aggregator.aggregate(transactions, customer.id)
+            return transactions, True
+
+        except Exception as e:
+            logger.error(f"Failed to process {pdf.name}: {e}")
             
-            # Update sheets
-            self.sheets_generator.update_budget(customer.id, aggregated)
-            self.sheets_generator.append_raw_data(customer.id, transactions)
-            
-            # Move to archive
-            self.drive_poller.move_to_archive(pdf_file, customer)
-            
-            # Mark as processed
-            self.hash_registry.mark_processed(
-                customer.id,
-                file_hash,
-                pdf_file.name,
-                "success"
-            )
-            
-            logger.info(
-                f"Successfully processed {pdf_file.name}: "
-                f"{len(transactions)} transactions for month {aggregated.month}"
-            )
-            
-            return transactions
-            
-        except (PDFError, LLMError, SheetsError, NetworkError) as e:
-            logger.error(f"Processing error for {pdf_file.name}: {e}")
-            
-            # Move to error folder
             try:
-                self.drive_poller.move_to_error(pdf_file, customer)
-            except Exception as move_error:
-                logger.error(f"Failed to move file to error folder: {move_error}")
+                drive.move_to_error(pdf, customer)
+            except Exception as move_err:
+                logger.error(f"Failed to move to error folder: {move_err}")
             
-            # Mark as error in registry
             if local_path:
-                try:
-                    file_hash = self.hash_registry.calculate_hash(local_path)
-                    self.hash_registry.mark_processed(
-                        customer.id,
-                        file_hash,
-                        pdf_file.name,
-                        "error"
-                    )
-                except Exception as hash_error:
-                    logger.error(f"Failed to mark file as error: {hash_error}")
-            
-            raise
+                file_hash = self.hash_registry.calculate_hash(local_path)
+                self.hash_registry.mark_processed(FileRecord(
+                    file_hash=file_hash,
+                    customer_id=customer.id,
+                    file_name=pdf.name,
+                    status="FAILED"
+                ))
+            return [], False
             
         finally:
-            # Cleanup temp file
-            if local_path:
-                self.drive_poller.cleanup_temp_file(local_path)
+            if local_path and local_path.exists():
+                try:
+                    local_path.unlink()
+                except:
+                    pass
+
+    def _aggregate_transactions(self, customer_id: str, transactions: List[Transaction]) -> AggregatedData:
+        """Aggregate transactions by category for the month of the first transaction."""
+        if not transactions:
+            return AggregatedData(month=datetime.now().month, totals={}, customer_id=customer_id, transactions=[])
+
+        first_date_str = transactions[0].date
+        try:
+            target_month = datetime.strptime(first_date_str, "%Y-%m-%d").month
+        except:
+            target_month = datetime.now().month
+        
+        category_totals: Dict[str, Decimal] = {}
+
+        for txn in transactions:
+            amount = Decimal(str(txn.amount))
+            category = txn.category
+            
+            category_totals[category] = category_totals.get(category, Decimal(0)) + amount
+            
+        return AggregatedData(month=target_month, totals=category_totals, customer_id=customer_id, transactions=transactions)
