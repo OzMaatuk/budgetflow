@@ -216,9 +216,24 @@ The Raw Data tab logs every transaction:
 
 ### Token expired or invalid
 
+**Error Message:** "invalid_grant: Token has been expired or revoked"
+
 **Solution:**
-- Delete `token.pickle` file (located at `%LOCALAPPDATA%\BudgetFlow\token.pickle`)
-- Re-run setup wizard to re-authorize
+1. Run the token cleaner script:
+   ```bash
+   python clear_oauth_token.py
+   ```
+   
+2. Or manually delete the token file:
+   - Location: `%LOCALAPPDATA%\BudgetFlow\token.pickle`
+   - Delete the file
+   
+3. Re-run BudgetFlow - it will automatically prompt for re-authorization:
+   ```bash
+   python main.py
+   ```
+
+**Note:** The improved authentication now automatically handles expired tokens and will prompt for re-authorization when needed.
 
 ## General Troubleshooting
 

@@ -106,12 +106,23 @@ Root Folder/
 
 ## Configuration
 
-Configuration is stored encrypted at:
+### User Configuration
+User-specific configuration is stored encrypted at:
 ```
 %LOCALAPPDATA%\BudgetFlow\config.json
 ```
 
 To reconfigure, run the setup wizard again.
+
+### Application Settings
+Default application settings are defined in `config.yaml` in the project root. This includes:
+- Logging configuration
+- Processing parameters (polling interval, concurrent customers)
+- LLM settings (model name, retry logic)
+- Vendor cache settings
+- File paths
+
+These settings can be customized before building the executable.
 
 ## Logs
 
@@ -176,6 +187,8 @@ Unregister-ScheduledTask -TaskName "BudgetFlow" -Confirm:$false
 **PDFs not processing**: Check API key validity and quota limits
 
 **Wrong categories**: Edit vendor cache at `%LOCALAPPDATA%\BudgetFlow\vendors\{customer}.json`
+
+**OAuth token expired**: Run `python clear_oauth_token.py` to clear the token and re-authorize
 
 ## Support
 

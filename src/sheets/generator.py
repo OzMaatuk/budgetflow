@@ -18,10 +18,16 @@ logger = get_logger()
 
 
 class SheetsGenerator:
-    """Manages system configuration with encryption and sheet updates."""
+    """Manages Google Sheets budget reports with two-sheet structure."""
 
-    def __init__(self, root_folder_id, service_account_path, oauth_client_secrets, oauth_token_path, categories_path: Optional[Path] = None):
-        # The Orchestrator passes config values as arguments directly
+    def __init__(
+        self, 
+        root_folder_id: str,
+        service_account_path: Optional[str] = None,
+        oauth_client_secrets: Optional[str] = None,
+        oauth_token_path: Optional[str] = None,
+        categories_path: Optional[Path] = None
+    ):
         credentials = get_credentials(
             service_account_path=service_account_path,
             oauth_client_secrets=oauth_client_secrets,
@@ -31,30 +37,32 @@ class SheetsGenerator:
         self.sheets_service = build("sheets", "v4", credentials=credentials)
         self.drive_service = build("drive", "v3", credentials=credentials)
         self.root_folder_id = root_folder_id
+        self.categories = self._load_categories(categories_path)
         
-        # Load categories if a path is provided, otherwise use default
-        if categories_path and categories_path.exists():
-            try:
-                with open(categories_path, 'r', encoding='utf-8') as f:
-                    self.categories = json.load(f)
-            except Exception:
-                logger.warning(f"Could not load categories from {categories_path}, using DEFAULT_CATEGORIES.")
-                self.categories = DEFAULT_CATEGORIES
-        else:
-            self.categories = DEFAULT_CATEGORIES
+        logger.info("Sheets Generator initialized")
+    
+    def _load_categories(self, categories_path: Optional[Path]) -> dict:
+        """Load categories from JSON file."""
+        if not categories_path or not categories_path.exists():
+            logger.warning("Categories file not found, using empty categories")
+            return {"income": [], "fixed_expenses": [], "variable_expenses": [], "other": []}
         
-        logger.info("Sheets Generator initialized with multi-sheet budget logic")
+        try:
+            with open(categories_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load categories: {e}")
+            return {"income": [], "fixed_expenses": [], "variable_expenses": [], "other": []}
 
     @retry_with_backoff()
     def get_or_create_report(self, customer: Customer) -> str:
-        """Get or create customer report spreadsheet, ensuring Budget and Raw Data tabs exist. (Same as original)"""
+        """Get or create customer report spreadsheet with Budget and Raw Data tabs."""
         report_name = "BudgetFlow Report"
         
         if customer.report_id:
             self._ensure_sheet_structure(customer.report_id)
             return customer.report_id
 
-        # Search for existing report
         query = (
             f"'{customer.folder_id}' in parents "
             f"and name='{report_name}' "
@@ -69,12 +77,10 @@ class SheetsGenerator:
             self._ensure_sheet_structure(spreadsheet_id)
             return spreadsheet_id
 
-        # Create new report
-        spreadsheet_id = self._create_report(customer.id, report_name, customer.folder_id)
-        return spreadsheet_id
+        return self._create_report(customer.id, report_name, customer.folder_id)
 
     def _create_report(self, customer_id: str, report_name: str, parent_folder_id: str) -> str:
-        """Create new budget report and set up Budget and Raw Data sheets. (Same as original)"""
+        """Create new budget report with Budget and Raw Data sheets."""
         spreadsheet_body = {
             "properties": {"title": report_name},
             "sheets": [{"properties": {"title": "Sheet1"}}]
@@ -86,8 +92,15 @@ class SheetsGenerator:
         ).execute()
         
         spreadsheet_id = spreadsheet["spreadsheetId"]
-
-        # Move to customer folder
+        self._move_to_customer_folder(spreadsheet_id, parent_folder_id)
+        self._setup_sheets(spreadsheet_id)
+        self._initialize_budget_sheet(spreadsheet_id)
+        self._initialize_raw_data_sheet(spreadsheet_id)
+        
+        return spreadsheet_id
+    
+    def _move_to_customer_folder(self, spreadsheet_id: str, parent_folder_id: str) -> None:
+        """Move spreadsheet to customer folder."""
         file = self.drive_service.files().get(fileId=spreadsheet_id, fields="parents").execute()
         previous_parents = ",".join(file.get('parents', []))
         
@@ -97,16 +110,10 @@ class SheetsGenerator:
             removeParents=previous_parents,
             fields="id, parents"
         ).execute()
-        
-        self._setup_sheets(spreadsheet_id)
-        self._initialize_budget_sheet(spreadsheet_id)
-        self._initialize_raw_data_sheet(spreadsheet_id)
-        
-        return spreadsheet_id
     
     @retry_with_backoff()
     def _get_sheet_info(self, spreadsheet_id: str) -> tuple:
-        """Get sheet information (sheets list and names). (Same as original)"""
+        """Get sheet information including sheets list and names."""
         result = self.sheets_service.spreadsheets().get(
             spreadsheetId=spreadsheet_id
         ).execute()
@@ -116,15 +123,17 @@ class SheetsGenerator:
     
     @retry_with_backoff()
     def _ensure_sheet_structure(self, spreadsheet_id: str) -> None:
-        """Ensure existing spreadsheet has proper sheet structure (Budget, Raw Data). (Same as original)"""
+        """Ensure spreadsheet has Budget and Raw Data sheets."""
         sheets, sheet_names = self._get_sheet_info(spreadsheet_id)
         requests = []
         needs_budget_init = False
         needs_raw_data_init = False
         
-        # Logic to rename "Sheet1" or "Transactions" to "Budget"
         if "Budget" not in sheet_names:
-            default_sheet = next((s for s in sheets if s["properties"]["title"] in ["Sheet1", "Transactions"]), None)
+            default_sheet = next(
+                (s for s in sheets if s["properties"]["title"] in ["Sheet1", "Transactions"]), 
+                None
+            )
             
             if default_sheet:
                 requests.append({
@@ -140,7 +149,6 @@ class SheetsGenerator:
                 requests.append({"addSheet": {"properties": {"title": "Budget"}}})
             needs_budget_init = True
         
-        # Check if Raw Data sheet exists
         if "Raw Data" not in sheet_names:
             requests.append({"addSheet": {"properties": {"title": "Raw Data"}}})
             needs_raw_data_init = True
@@ -150,9 +158,6 @@ class SheetsGenerator:
                 spreadsheetId=spreadsheet_id,
                 body={"requests": requests}
             ).execute()
-            
-            # Re-fetch info to get new sheet IDs if needed (though not strictly necessary for init functions)
-            # sheets, sheet_names = self._get_sheet_info(spreadsheet_id) 
 
             if needs_budget_init:
                 self._initialize_budget_sheet(spreadsheet_id)
@@ -160,9 +165,8 @@ class SheetsGenerator:
                 self._initialize_raw_data_sheet(spreadsheet_id)
 
     def _setup_sheets(self, spreadsheet_id: str) -> None:
-        """Rename default Sheet1 to Budget and add Raw Data sheet. (Same as original)"""
+        """Rename default Sheet1 to Budget and add Raw Data sheet."""
         sheets, _ = self._get_sheet_info(spreadsheet_id)
-        # Assuming 'Sheet1' is present after creation in _create_report
         default_sheet = next(s for s in sheets if s["properties"]["title"] == "Sheet1")
         default_sheet_id = default_sheet["properties"]["sheetId"]
         
@@ -183,20 +187,16 @@ class SheetsGenerator:
     
     @retry_with_backoff()
     def _initialize_budget_sheet(self, spreadsheet_id: str) -> None:
-        """Initialize Budget sheet with categories and month headers. (Same as original)"""
-        # The month names are in Hebrew: חודש 1 (Hodesh 1) = Month 1
+        """Initialize Budget sheet with categories and month headers."""
         headers = ["Category ID", "Category Name"] + [f"חודש {i}" for i in range(1, 13)]
-        
         rows = [headers]
         
         for group in ["income", "fixed_expenses", "variable_expenses", "other"]:
             for category in self.categories.get(group, []):
-                # Row structure: [ID, Name, Month 1 (0), Month 2 (0), ...]
                 row = [category["id"], category["name"]] + ["0"] * 12
                 rows.append(row)
         
         body = {"values": rows}
-        
         self.sheets_service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
             range="Budget!A1",
@@ -206,7 +206,7 @@ class SheetsGenerator:
         
     @retry_with_backoff()
     def _initialize_raw_data_sheet(self, spreadsheet_id: str) -> None:
-        """Initialize Raw Data sheet with headers. (Same as original)"""
+        """Initialize Raw Data sheet with headers."""
         headers = ["Date", "Description", "Amount", "Category", "Processed At", "Source File"]
         body = {"values": [headers]}
         
@@ -218,43 +218,17 @@ class SheetsGenerator:
         ).execute()
         
     @retry_with_backoff()
-    # Renamed method signature to match Orchestrator's call (customer_id instead of customer object)
-    def update_budget(self, customer_id: str, aggregated: AggregatedData) -> None:
+    def update_budget(self, spreadsheet_id: str, aggregated: AggregatedData) -> None:
         """Update budget sheet with aggregated data using additive logic."""
-        
-        # NOTE: The SheetsGenerator is called with customer_id, but needs the report_id to update.
-        # Assuming the Orchestrator (or a helper function in a complete implementation) ensures 
-        # that customer.report_id is set before calling this. For now, we rely on the customer_id
-        # and assume a mechanism to retrieve the report_id or pass the spreadsheet_id directly.
-        # Since the Orchestrator doesn't currently provide the spreadsheet_id, we need to adapt 
-        # or rely on the Orchestrator to ensure get_or_create_report is called first to get/set the ID.
-        # For simplicity and sticking to the provided code structure, I'll rely on the original 
-        # method signature from SheetsReporter which *did* take spreadsheet_id:
-        # def update_budget(self, spreadsheet_id: str, aggregated: AggregatedData) -> None: 
-        # I'll keep the Orchestrator's signature for now but assume the customer_id is used to find the ID.
-        # However, the *original* SheetsReporter implementation of update_budget took spreadsheet_id, not customer_id.
-        # To maintain the original logic, I'll use the spreadsheet_id parameter name. The Orchestrator calling 
-        # function will need to be updated to pass the ID. Since the prompt only gave the original class, I'll stick to the original logic
-        
-        # Assuming the calling Orchestrator handles fetching the spreadsheet_id using customer_id
-        # and passes it correctly.
-
-        # *** Original logic from SheetsReporter.update_budget ***
-        spreadsheet_id = customer_id # TEMPORARY: Assume customer_id IS the spreadsheet_id for this function scope
-        
-        # Month columns are C (month 1), D (month 2), E (month 3)... 
-        # Column index is 0-based, so month 1 is index 2, month 12 is index 13.
-        month_col_index_0based = 2 + aggregated.month - 1
+        month_col_index = 2 + aggregated.month - 1
         
         for category_name, amount in aggregated.totals.items():
-            # NOTE: _find_category_row uses the spreadsheet_id
             row = self._find_category_row(spreadsheet_id, category_name)
             if row is None:
                 logger.warning(f"Category not found in sheet: {category_name}")
                 continue
             
-            # Read existing value
-            cell_range = f"Budget!{self._col_letter(month_col_index_0based)}{row}"
+            cell_range = f"Budget!{self._col_letter(month_col_index)}{row}"
             
             result = self.sheets_service.spreadsheets().values().get(
                 spreadsheetId=spreadsheet_id,
@@ -263,11 +237,8 @@ class SheetsGenerator:
             
             existing_value = result.get("values", [["0"]])[0][0]
             existing_amount = self._parse_amount(existing_value)
-            
-            # Calculate new value (additive)
             new_amount = existing_amount + amount
             
-            # Write back
             body = {"values": [[float(new_amount)]]}
             self.sheets_service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
@@ -279,24 +250,14 @@ class SheetsGenerator:
         logger.info(f"Updated budget sheet with {len(aggregated.totals)} categories for חודש {aggregated.month}")
 
     @retry_with_backoff()
-    # Renamed method signature to match Orchestrator's call (customer_id instead of spreadsheet_id)
-    def append_raw_data(self, customer_id: str, transactions: List[Transaction], source_file: str = "N/A") -> None:
+    def append_raw_data(self, spreadsheet_id: str, transactions: List[Transaction], source_file: str = "N/A") -> None:
         """Append transactions to Raw Data sheet."""
-        
-        # *** Original logic from SheetsReporter.append_raw_data ***
-        spreadsheet_id = customer_id # TEMPORARY: Assume customer_id IS the spreadsheet_id for this function scope
-        
         rows = []
         processed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for txn in transactions:
-            # Ensure date and amount are JSON-serializable for the Sheets API
-            if isinstance(txn.date, datetime):
-                date_value = txn.date.strftime("%Y-%m-%d")
-            else:
-                date_value = str(txn.date)
-
-            # Convert Decimal to float for JSON serialization (Sheets accepts numbers)
+            date_value = txn.date.strftime("%Y-%m-%d") if isinstance(txn.date, datetime) else str(txn.date)
+            
             try:
                 amount_value = float(txn.amount)
             except Exception:
@@ -308,7 +269,7 @@ class SheetsGenerator:
                 amount_value,
                 txn.category,
                 processed_at,
-                source_file # This was passed as an argument in original, added default for Orchestrator compatibility
+                source_file
             ])
         
         body = {"values": rows}
@@ -324,7 +285,7 @@ class SheetsGenerator:
     
     @retry_with_backoff()
     def _find_category_row(self, spreadsheet_id: str, category: str) -> Optional[int]:
-        """Find the 1-indexed row number in the Budget sheet for a given category name. (Same as original)"""
+        """Find the 1-indexed row number in Budget sheet for given category name."""
         result = self.sheets_service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range="Budget!B:B"
@@ -334,14 +295,13 @@ class SheetsGenerator:
         
         for i, row in enumerate(values):
             if row and row[0] == category:
-                return i + 1 # 1-indexed row number
+                return i + 1
         
         return None
     
     @staticmethod
     def _col_letter(col_index: int) -> str:
-        """Convert 0-indexed column index to letter (0 -> A, 1 -> B, etc.). (Same as original)"""
-        # This utility function converts column index (0-based) to letter (A, B, C...).
+        """Convert 0-indexed column index to letter (0 -> A, 1 -> B, etc.)."""
         result = ""
         temp_index = col_index
         while temp_index >= 0:
@@ -351,7 +311,7 @@ class SheetsGenerator:
     
     @staticmethod
     def _parse_amount(value: str) -> Decimal:
-        """Parse amount from cell value. (Same as original)"""
+        """Parse amount from cell value, removing currency symbols."""
         if not value:
             return Decimal("0")
         
@@ -359,5 +319,5 @@ class SheetsGenerator:
         
         try:
             return Decimal(cleaned)
-        except:
+        except Exception:
             return Decimal("0")

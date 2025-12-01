@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config.manager import Config
 from drive.poller import DrivePoller
-from drive.models import Customer
+from drive.models import Customer, PDFFile
 from gemini.processor import GeminiProcessor
 from llm.models import Transaction
 from utils.logger import get_logger

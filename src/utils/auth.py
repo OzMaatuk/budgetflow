@@ -20,6 +20,13 @@ SCOPES = [
 ]
 
 
+def get_default_token_path() -> str:
+    """Get default OAuth token path."""
+    config_dir = Path(os.getenv("LOCALAPPDATA")) / "BudgetFlow"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return str(config_dir / "token.pickle")
+
+
 def get_credentials(
     service_account_path: Optional[str] = None,
     oauth_client_secrets: Optional[str] = None,
@@ -73,41 +80,62 @@ def _get_oauth_credentials(
         OAuth credentials
     """
     if token_path is None:
-        # Default token path
-        config_dir = Path(os.getenv("LOCALAPPDATA")) / "BudgetFlow"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        token_path = str(config_dir / "token.pickle")
+        token_path = get_default_token_path()
     
-    creds = None
+    creds = _load_existing_credentials(token_path)
     
-    # Load existing credentials
-    if os.path.exists(token_path):
-        logger.debug("Loading saved OAuth credentials")
-        with open(token_path, "rb") as token:
-            creds = pickle.load(token)
-    
-    # Refresh or get new credentials
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            logger.info("Refreshing expired OAuth credentials")
-            creds.refresh(Request())
-        else:
-            if not os.path.exists(client_secrets_path):
-                raise FileNotFoundError(
-                    f"OAuth client secrets not found: {client_secrets_path}\n"
-                    "Please create OAuth credentials in Google Cloud Console."
-                )
-            
-            logger.info("Starting OAuth authorization flow")
-            flow = InstalledAppFlow.from_client_secrets_file(
-                client_secrets_path, SCOPES
-            )
-            creds = flow.run_local_server(port=0)
-            logger.info("OAuth authorization successful")
-        
-        # Save credentials
-        with open(token_path, "wb") as token:
-            pickle.dump(creds, token)
-            logger.debug(f"Saved OAuth credentials to {token_path}")
+        creds = _refresh_or_authorize(creds, client_secrets_path)
+        _save_credentials(creds, token_path)
     
     return creds
+
+
+def _load_existing_credentials(token_path: str) -> Optional[Credentials]:
+    """Load existing OAuth credentials from file."""
+    if os.path.exists(token_path):
+        try:
+            logger.debug("Loading saved OAuth credentials")
+            with open(token_path, "rb") as token:
+                return pickle.load(token)
+        except Exception as e:
+            logger.warning(f"Failed to load credentials from {token_path}: {e}")
+            logger.info("Will delete corrupted token file and re-authorize")
+            try:
+                os.remove(token_path)
+            except Exception:
+                pass
+    return None
+
+
+def _refresh_or_authorize(creds: Optional[Credentials], client_secrets_path: str) -> Credentials:
+    """Refresh expired credentials or start new authorization flow."""
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            logger.info("Refreshing expired OAuth credentials")
+            creds.refresh(Request())
+            logger.info("OAuth credentials refreshed successfully")
+            return creds
+        except Exception as e:
+            logger.warning(f"Failed to refresh credentials: {e}")
+            logger.info("Token refresh failed, will re-authorize")
+            creds = None
+    
+    if not os.path.exists(client_secrets_path):
+        raise FileNotFoundError(
+            f"OAuth client secrets not found: {client_secrets_path}\n"
+            "Please create OAuth credentials in Google Cloud Console."
+        )
+    
+    logger.info("Starting OAuth authorization flow (token expired or revoked)")
+    flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
+    creds = flow.run_local_server(port=0)
+    logger.info("OAuth authorization successful")
+    return creds
+
+
+def _save_credentials(creds: Credentials, token_path: str) -> None:
+    """Save OAuth credentials to file."""
+    with open(token_path, "wb") as token:
+        pickle.dump(creds, token)
+        logger.debug(f"Saved OAuth credentials to {token_path}")

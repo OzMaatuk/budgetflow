@@ -11,11 +11,16 @@ logger = get_logger()
 
 
 class VendorCache:
-    """Manages vendor-to-category mappings per customer."""
+    """Manages vendor-to-category mappings per customer with fuzzy matching."""
     
-    FUZZY_THRESHOLD = 3  # Maximum Levenshtein distance for fuzzy match
-    
-    def __init__(self):
+    def __init__(self, fuzzy_threshold: int = 3):
+        """
+        Initialize vendor cache.
+        
+        Args:
+            fuzzy_threshold: Maximum Levenshtein distance for fuzzy match
+        """
+        self.fuzzy_threshold = fuzzy_threshold
         self.cache_dir = Path(os.getenv("LOCALAPPDATA")) / "BudgetFlow" / "vendors"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
     
@@ -43,7 +48,7 @@ class VendorCache:
         # Try fuzzy match
         for cached_vendor, category in mappings.items():
             distance = Levenshtein.distance(normalized_vendor, cached_vendor)
-            if distance <= self.FUZZY_THRESHOLD:
+            if distance <= self.fuzzy_threshold:
                 logger.debug(
                     f"Fuzzy vendor match: {vendor} -> {cached_vendor} "
                     f"(distance: {distance}) -> {category}"
