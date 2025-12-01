@@ -103,7 +103,14 @@ class DrivePoller:
         customer_temp = self.temp_dir / customer_id
         customer_temp.mkdir(parents=True, exist_ok=True)
         
-        local_path = customer_temp / pdf_file.name
+        # Use ASCII-safe sanitized filename for local storage to avoid issues
+        # when third-party SDKs or the filesystem attempt to encode the name.
+        local_name = self._sanitize_filename(pdf_file.name)
+
+        # Use sanitized local filename only. We intentionally DO NOT attempt to
+        # rename the remote Drive file anymore — this keeps remote files
+        # unchanged and avoids changing a customer's Drive content.
+        local_path = customer_temp / local_name
         
         request = self.service.files().get_media(fileId=pdf_file.id)
         
@@ -116,6 +123,43 @@ class DrivePoller:
         
         logger.debug(f"Downloaded {pdf_file.name}")
         return local_path
+
+    @staticmethod
+    def _sanitize_filename(name: str) -> str:
+        """Return a sanitized ASCII-only filename while preserving the extension.
+
+        Strategy:
+        - Normalize Unicode to NFKD and drop non-ASCII characters
+        - Replace whitespace and path separators with underscores
+        - Strip other problematic characters
+        - Keep extension
+        - Use a fallback name if result is empty
+        """
+        import unicodedata
+        import re
+        from uuid import uuid4
+
+        if '.' in name:
+            base, ext = name.rsplit('.', 1)
+            ext = '.' + ext
+        else:
+            base, ext = name, ''
+
+        normalized = unicodedata.normalize('NFKD', base)
+        ascii_bytes = normalized.encode('ascii', 'ignore')
+        ascii_str = ascii_bytes.decode('ascii')
+
+        ascii_str = re.sub(r'[\s/\\]+', '_', ascii_str)
+        ascii_str = re.sub(r'[^A-Za-z0-9._-]+', '', ascii_str)
+        ascii_str = re.sub(r'__+', '_', ascii_str).strip('_')
+
+        if not ascii_str:
+            ascii_str = f"file_{uuid4().hex}"
+
+        if len(ascii_str) > 200:
+            ascii_str = ascii_str[:200]
+
+        return ascii_str + ext
     
     def move_to_archive(self, pdf_file: PDFFile, customer: Customer) -> None:
         self._move_to_subfolder(pdf_file, customer, "Archive", "archive_folder_id")
